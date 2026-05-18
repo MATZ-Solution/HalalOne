@@ -1,0 +1,4 @@
+typesense
+fastapi
+uvicorn
+python-dotenv
