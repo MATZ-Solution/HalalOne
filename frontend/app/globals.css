@@ -1,0 +1,266 @@
+@import url("https://api.fontshare.com/v2/css?f[]=switzer@300,400,500,600,700,800,900&display=swap");
+@import "tailwindcss";
+@import "tailwindcss/preflight";
+
+
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-roboto: var(--font-roboto);
+  --font-inter: var(--font-inter);
+  --font-space-grotesk: var(--font-space-grotesk);
+  --font-manrope: var(--font-manrope);
+  --font-dm-sans: var(--font-dm-sans);
+  --font-raleway: var(--font-raleway);
+  --font-switzer: "Switzer", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer utilities {
+  /* Switzer (Fontshare) */
+  .switzer-300 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 300;
+  }
+  .switzer-400 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 400;
+  }
+  .switzer-500 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 500;
+  }
+  .switzer-600 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 600;
+  }
+  .switzer-700 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 700;
+  }
+  .switzer-800 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 800;
+  }
+  .switzer-900 {
+    font-family: "Switzer", sans-serif;
+    font-weight: 900;
+  }
+
+  /* Roboto */
+  .roboto-400 {
+    font-family: var(--font-roboto);
+    font-weight: 400;
+  }
+  .roboto-500 {
+    font-family: var(--font-roboto);
+    font-weight: 500;
+  }
+  .roboto-700 {
+    font-family: var(--font-roboto);
+    font-weight: 700;
+  }
+
+  /* Inter */
+  .inter-100 {
+    font-family: var(--font-inter);
+    font-weight: 100;
+  }
+  .inter-200 {
+    font-family: var(--font-inter);
+    font-weight: 200;
+  }
+  .inter-300 {
+    font-family: var(--font-inter);
+    font-weight: 300;
+  }
+  .inter-400 {
+    font-family: var(--font-inter);
+    font-weight: 400;
+  }
+  .inter-500 {
+    font-family: var(--font-inter);
+    font-weight: 500;
+  }
+  .inter-600 {
+    font-family: var(--font-inter);
+    font-weight: 600;
+  }
+  .inter-700 {
+    font-family: var(--font-inter);
+    font-weight: 700;
+  }
+  .inter-800 {
+    font-family: var(--font-inter);
+    font-weight: 800;
+  }
+  .inter-900 {
+    font-family: var(--font-inter);
+    font-weight: 900;
+  }
+
+  /* Space Grotesk */
+  .space-grotesk-300 {
+    font-family: var(--font-space-grotesk);
+    font-weight: 300;
+  }
+  .space-grotesk-400 {
+    font-family: var(--font-space-grotesk);
+    font-weight: 400;
+  }
+  .space-grotesk-500 {
+    font-family: var(--font-space-grotesk);
+    font-weight: 500;
+  }
+  .space-grotesk-600 {
+    font-family: var(--font-space-grotesk);
+    font-weight: 600;
+  }
+  .space-grotesk-700 {
+    font-family: var(--font-space-grotesk);
+    font-weight: 700;
+  }
+
+  /* Manrope */
+  .manrope-200 {
+    font-family: var(--font-manrope);
+    font-weight: 200;
+  }
+  .manrope-300 {
+    font-family: var(--font-manrope);
+    font-weight: 300;
+  }
+  .manrope-400 {
+    font-family: var(--font-manrope);
+    font-weight: 400;
+  }
+  .manrope-500 {
+    font-family: var(--font-manrope);
+    font-weight: 500;
+  }
+  .manrope-600 {
+    font-family: var(--font-manrope);
+    font-weight: 600;
+  }
+  .manrope-700 {
+    font-family: var(--font-manrope);
+    font-weight: 700;
+  }
+  .manrope-800 {
+    font-family: var(--font-manrope);
+    font-weight: 800;
+  }
+
+  /* DM Sans */
+  .dm-sans-100 {
+    font-family: var(--font-dm-sans);
+    font-weight: 100;
+  }
+  .dm-sans-200 {
+    font-family: var(--font-dm-sans);
+    font-weight: 200;
+  }
+  .dm-sans-300 {
+    font-family: var(--font-dm-sans);
+    font-weight: 300;
+  }
+  .dm-sans-400 {
+    font-family: var(--font-dm-sans);
+    font-weight: 400;
+  }
+  .dm-sans-500 {
+    font-family: var(--font-dm-sans);
+    font-weight: 500;
+  }
+  .dm-sans-600 {
+    font-family: var(--font-dm-sans);
+    font-weight: 600;
+  }
+  .dm-sans-700 {
+    font-family: var(--font-dm-sans);
+    font-weight: 700;
+  }
+  .dm-sans-800 {
+    font-family: var(--font-dm-sans);
+    font-weight: 800;
+  }
+  .dm-sans-900 {
+    font-family: var(--font-dm-sans);
+    font-weight: 900;
+  }
+
+  /* Scrollbar */
+  .scrollbar-thin-dark {
+    scrollbar-width: auto;
+    scrollbar-color: #ffffff transparent;
+  }
+  .scrollbar-thin-dark::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin-dark::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin-dark::-webkit-scrollbar-thumb {
+    background-color: #1a1a1a;
+    border-radius: 9999px;
+  }
+
+  /* Raleway */
+  .raleway-100 {
+    font-family: var(--font-raleway);
+    font-weight: 100;
+  }
+  .raleway-200 {
+    font-family: var(--font-raleway);
+    font-weight: 200;
+  }
+  .raleway-300 {
+    font-family: var(--font-raleway);
+    font-weight: 300;
+  }
+  .raleway-400 {
+    font-family: var(--font-raleway);
+    font-weight: 400;
+  }
+  .raleway-500 {
+    font-family: var(--font-raleway);
+    font-weight: 500;
+  }
+  .raleway-600 {
+    font-family: var(--font-raleway);
+    font-weight: 600;
+  }
+  .raleway-700 {
+    font-family: var(--font-raleway);
+    font-weight: 700;
+  }
+  .raleway-800 {
+    font-family: var(--font-raleway);
+    font-weight: 800;
+  }
+  .raleway-900 {
+    font-family: var(--font-raleway);
+    font-weight: 900;
+  }
+}
