@@ -1,4 +1,11 @@
 typesense
 fastapi
-uvicorn
+uvicorn[standard]
+gunicorn
 python-dotenv
+pydantic
+langchain
+langchain-core
+langchain-fireworks
+langgraph
+langchain-groq

@@ -1,18 +1,20 @@
 import os
 import uuid
+import asyncio
+import json
 from typing import Literal, Optional, Dict, Any, List
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-# from langchain_groq import ChatGroq
+from langchain_groq import ChatGroq
 from langchain_fireworks import FireworksEmbeddings, ChatFireworks
 from langchain.agents import create_agent
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
-import json
 from config.typesense_client import TS_CLIENT
 from collection.search.search_collection import search_collection
 from log.logger import logger
+from models.agent_output import OutputSchema
 
 
 load_dotenv()
@@ -180,11 +182,30 @@ class SemanticFilterInput(BaseModel):
 
 # ── Tool implementations ──────────────────────────────────────────────────────
 def keyword_filter_search(keyword_args: Optional[Dict], filter_args: Optional[Dict]) -> str:
-    return json.dumps(_keyword_search(keyword_args, filter_args))
+    return json.dumps(_keyword_search(keyword_args, filter_args)[:10])
 
 
 def semantic_filter_search(semantic_query: str, filter_args: Optional[Dict]) -> str:
-    return json.dumps(_semantic_search(semantic_query, filter_args))
+    return json.dumps(_semantic_search(semantic_query, filter_args)[:10])
+
+
+# ── FinalAnswer ───────────────────────────────────────────────────────────────
+class FinalAnswerInput(BaseModel):
+    response: str = Field(
+        description="Your natural language message to the user. Can't be none"
+    )
+    products: List[OutputSchema] = Field(
+        default_factory=list,
+        description=(
+            "Product objects selected from search results to show the user. "
+            "Maximum 10 unless the user explicitly asks for more. "
+            "Empty list if no products were found or the query is irrelevant."
+        ),
+    )
+
+
+def final_answer(response: str, products: list) -> str:
+    return "[DONE]"
 
 
 tools = [
@@ -207,11 +228,27 @@ tools = [
         ),
         args_schema=SemanticFilterInput,
     ),
+    StructuredTool.from_function(
+        func=final_answer,
+        name="FinalAnswer",
+        description=(
+            "MUST be called as the absolute last action after all searches are complete "
+            "(or when deciding not to search). Use this to submit your response text and "
+            "the selected product results to the user."
+        ),
+        args_schema=FinalAnswerInput,
+    ),
 ]
 
 
+# ## IMAGE INPUT
+
+# When the user sends an image, read visible product names, brand names, ingredient lists, certification labels, and halal logos. Extract any keyword or filter fields you can see, then call the appropriate search tool(s). If the image is unclear or unrelated to halal products, ask the user for a clearer photo.
+
+
+
 # ── System prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are Halalify's intelligent product search agent with access to a database of 200,000+ halal-certified products (food items, ingredients, additives, manufactured goods). You are a conversational-style assistant, but don't entertain queries that aren't related to halal products search.
+SYSTEM_PROMPT = """You are Halalify's intelligent product search agent with access to a database of 200,000+ halal-certified products (food items, ingredients, additives, manufactured goods, creams, cosmetics or any type of halal product). You are a conversational-style assistant, but don't entertain queries that aren't related to halal products search.
 
 ## PRODUCT SCHEMA
 
@@ -245,17 +282,13 @@ Analyze the user's query and follow these rules strictly:
 3. **Pure semantic/conceptual query** → `SemanticFilterSearch(semantic_query="...", filter_args=null)`
 4. **Semantic query + filters** → `SemanticFilterSearch(semantic_query="...", filter_args={{...}})`
 5. **Keywords + semantic content + filters** → Call `KeywordFilterSearch` first; if the result is "No products found.", then call `SemanticFilterSearch` with the semantic portion and filters
-6. **Irrelevant query** → Do NOT call any tool. Politely inform the user you only assist with halal product searches.
-
-## IMAGE INPUT
-
-When the user sends an image, read visible product names, brand names, ingredient lists, certification labels, and halal logos. Extract any keyword or filter fields you can see, then call the appropriate search tool(s). If the image is unclear or unrelated to halal products, ask the user for a clearer photo.
+6. **Irrelevant query** → Do NOT call any search tool. Call `FinalAnswer` directly with an empty products list and a polite response.
 
 ## CLASSIFICATION GUIDE
 
 - **Keyword** = explicit product name, brand/company, known ingredient, or specific use mentioned directly. If a product name OR company name is explicitly mentioned, ALWAYS call `KeywordFilterSearch` first regardless of how the question is phrased.
 - **Filter** = a category, certification body, halal status, barcode, location, or marketplace constraint
-- **Semantic** = conceptual or descriptive intent (e.g. "good for bone health", "natural sweetener for diabetics")
+- **Semantic** = conceptual or descriptive intent (e.g. "good for bone health", "natural sweetener for diabetics"). Directly call the `SemanticFilterSearch`.
 - **Irrelevant** = greetings, general questions, non-halal-product topics
 
 ## STRICT EXTRACTION RULES
@@ -284,21 +317,25 @@ Before passing any filter value to a tool, normalize it:
 
 **If the typo or value is too ambiguous to correct confidently** — do NOT call any tool. Instead ask the user to clarify that specific field before proceeding.
 
-## OUTPUT FORMAT
+## MANDATORY FINAL STEP
 
-**If the tool returns one or more products:**
-- Respond ONLY with a grammatically correct acknowledgment sentence that matches the count:
-  - **1 product**: "Here is the relevant product I found for you."
-  - **2+ products**: "Here are the relevant products I found for you."
+After completing all searches — or deciding not to search — you MUST call `FinalAnswer` as your absolute last action. Never skip this step.
 
-**Examples:**
-- Tool returns 1 product → Just respond with: "Here is the relevant product I found for you."
-- Tool returns 3 products → Just respond with: "Here are the relevant products I found for you."
+**FinalAnswer fields:**
+- `response` — Your natural language message to the user (follow the Response Format below)
+- `products` — Product objects you select from the search results to show the user. Pick the most relevant ones. **Maximum 10** unless the user explicitly asks for more. Pass an empty list if no products were found or the query is irrelevant. Only include products returned by the search tools — do not fabricate or modify product data.
 
+After the `FinalAnswer` tool call completes, output exactly: [DONE]
 
-- **If the tool returned no products or an empty list:** 
-- respond freely — explain why results may be missing and suggest how the user could refine their query.
-- If **no tool was called** (irrelevant query): respond politely without calling any tool."""
+## RESPONSE FORMAT (for FinalAnswer.response)
+
+**If products were found:**
+- 1 product → "Here is the relevant product I found for you."
+- 2+ products → "Here are the relevant products I found for you."
+
+**If no products were found:** Explain why results may be missing and suggest how the user could refine their query.
+**If irrelevant query:** Politely inform the user you only assist with halal product searches."""
+
 
 
 llm = ChatFireworks(
@@ -307,41 +344,72 @@ llm = ChatFireworks(
     temperature=0,
 )
 
+# llm = ChatGroq(
+#     model="meta-llama/llama-4-scout-17b-16e-instruct",
+#     api_key=os.getenv("GROQ_API_KEY"),
+#     temperature=0,
+# )
+
 agent = create_agent(model= llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=InMemorySaver())
 
-
-thread_id = {"configurable": {"thread_id": str(uuid.uuid4())}}
-
-
-SEARCH_TOOLS = {"KeywordFilterSearch", "SemanticFilterSearch"}
-
-def build_image_user_content(text: str, base64: str, mime_type: str) -> list:
-    return [
-        {"type": "text", "text": text},
-        {
-            "type": "image_url",
-            "image_url": {
-                "url": f"data:{mime_type};base64,{base64}"
-            }
-        },
-    ]
+def build_image_user_url(base64: str, mime_type: str) -> str:
+    return f"data:{mime_type};base64,{base64}"
 
 
-def run_agent(query: str | list, config: dict = None) -> dict:
+async def run_agent(query: str | list, config: dict = None) -> dict:
     content = query if isinstance(query, list) else query
-    result = agent.invoke(
+    result = await asyncio.to_thread(
+        agent.invoke,
         {"messages": [{"role": "user", "content": content}]},
-        config=config or thread_id,
+        config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
     )
     messages = result["messages"]
-    response = messages[-1].content
 
-    documents = []
     for msg in reversed(messages):
-        if getattr(msg, "name", None) in SEARCH_TOOLS:
-            try:
-                documents = json.loads(msg.content)
-            except (json.JSONDecodeError, TypeError):
-                pass
-            break
-    return {"response": response, "documents": documents}
+        for tc in getattr(msg, "tool_calls", []):
+            if tc.get("name") == "FinalAnswer":
+                args = tc.get("args", {})
+                return {
+                    "response": args.get("response", ""),
+                    "documents": args.get("products", []),
+                }
+
+    return {"response": messages[-1].content if messages else "", "documents": []}
+
+
+async def stream_agent(query: str | list, config: dict = None):
+    content = query if isinstance(query, list) else query
+    final_result = {"response": "", "documents": []}
+
+    async for chunk in agent.astream(
+        {"messages": [{"role": "user", "content": content}]},
+        config=config or {"configurable": {"thread_id": str(uuid.uuid4())}},
+        stream_mode="updates",
+    ):
+        for _node, node_data in chunk.items():
+            for msg in node_data.get("messages", []):
+                for tc in getattr(msg, "tool_calls", []):
+                    name = tc.get("name", "")
+                    args = tc.get("args", {})
+                    if name == "KeywordFilterSearch":
+                        has_keywords = bool(args.get("keyword_args"))
+                        has_filters = bool(args.get("filter_args"))
+                        if has_keywords:
+                            message = "Searching keywords"
+                        elif has_filters:
+                            message = "Applying filters"
+                        else:
+                            message = "Searching relevant products"
+                        yield {"type": "status", "message": message, "tool": name, "args": args}
+                    elif name == "SemanticFilterSearch":
+                        yield {"type": "status", "message": "Searching semantics", "tool": name, "args": args}
+                    elif name == "FinalAnswer":
+                        print("Final Response", args.get("response", "No response"))
+                        print("Final products", args.get("products", []))
+                        args = tc.get("args", {})
+                        final_result = {
+                            "response": args.get("response", ""),
+                            "documents": args.get("products", []),
+                        }
+
+    yield {"type": "results", **final_result}

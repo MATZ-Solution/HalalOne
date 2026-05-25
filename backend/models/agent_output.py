@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 class OutputSchema(BaseModel):
-    # response: Optional[str] = None
+    canonical_id: Optional[str] = None
     norm_name: Optional[str] = None
     companies: Optional[List[str]] = None
     cert_bodies: Optional[List[str]] = None

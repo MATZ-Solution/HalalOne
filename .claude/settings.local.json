@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\anas_\\\\OneDrive\\\\Documents\\\\TypeSense'Halalify\" -Force)",
+      "Bash(Select-Object -Property Name, PSIsContainer)"
+    ]
+  }
+}

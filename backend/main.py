@@ -1,13 +1,17 @@
+import asyncio
+import sys
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from agents.main_agent import run_agent, build_image_user_content
 from dotenv import load_dotenv
-import asyncio
 import uuid
 import os
 import json
 
-load_dotenv()
+from backend.llms.vision_llm import invoke_llm_with_image
+
+load_dotenv(override=True)
 
 app = FastAPI()
 
@@ -26,7 +30,6 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             raw = await websocket.receive_text()
-
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
@@ -38,7 +41,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
                 print(f"[WS] Prompt: {message}")
                 try:
-                    result = run_agent(message, config)
+                    result = await run_agent(message, config)
                 except Exception as e:
                     print(f"[WS] run_agent error: {e}")
                     result = {"response": "An error occurred. Please try again.", "documents": []}
@@ -56,8 +59,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
                 text = data.get("message", "").strip() or "Is this halal?"
                 try:
-                    content = build_image_user_content(text, base64_data, mime_type)
-                    result = run_agent(content, config)
+                    image_url = build_image_user_url(base64_data, mime_type)
+                    result = await invoke_llm_with_image()
                 except Exception as e:
                     print(f"[WS] run_agent error: {e}")
                     result = {"response": "An error occurred. Please try again.", "documents": []}
