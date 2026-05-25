@@ -1,13 +1,14 @@
-import asyncio
-import sys
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from agents.main_agent import run_agent, build_image_user_content
-from dotenv import load_dotenv
-import uuid
+from nt import error
 import os
 import json
+import uuid
+from log.logger import logger
+from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
+from llms.vision_llm import invoke_llm_with_image
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from agents.main_agent import build_image_url, run_agent
+
 
 load_dotenv(override=True)
 
@@ -55,10 +56,48 @@ async def websocket_endpoint(websocket: WebSocket):
                 mime_type = data.get("mime_type", "image/jpeg").strip() or "image/jpeg"
                 if not base64_data:
                     continue
-                text = data.get("message", "").strip() or "Is this halal?"
+                user_prompt = data.get("message", "").strip()
                 try:
-                    query_content = build_image_user_content(text, base64_data, mime_type)
-                    result = await run_agent(query_content, config)
+                    image_url = build_image_url(base64_data, mime_type)
+                    if not image_url:
+                        await websocket.send_text(json.dumps({
+                            "type": "results",
+                            "response": "Try uploading another image",
+                            "documents": [],
+                        })) 
+                        continue
+
+                    # add retry logic here
+                    for i in range(3):
+                        try:
+                            response = await invoke_llm_with_image(image_url)
+                            error = response.get("error")
+                            if error:
+                                if i==2:
+                                    await websocket.send_text(json.dumps({
+                                        "type": "results",
+                                        "response": response["error"],
+                                        "documents": [],
+                                    }))
+                                continue
+                            else:
+                                break
+                        except Exception as e:
+                            logger.error(f"Some error occured while extracting data from image: {e}")
+                            if i==2:
+                                await websocket.send_text(json.dumps({
+                                    "type": "results",
+                                    "response": "Error occured while parsing image, try again.",
+                                    "documents": [],
+                                })) 
+                                continue
+                    product_info_string += "\n".join(f"{pos}. {k}:{v}" for pos, (k, v) in enumerate(response.items(), 1))
+                    if user_prompt:
+                        user_prompt+=f"\n Product Info: \n {product_info_string}"
+                    else: 
+                        user_prompt = f"Is the product with the following details halal? \n {product_info_string}"
+                        
+                    result = await run_agent(user_prompt, config)
                 except Exception as e:
                     print(f"[WS] run_agent error: {e}")
                     result = {"response": "An error occurred. Please try again.", "documents": []}

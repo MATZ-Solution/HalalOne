@@ -245,10 +245,27 @@ tools = [
 
 # When the user sends an image, read visible product names, brand names, ingredient lists, certification labels, and halal logos. Extract any keyword or filter fields you can see, then call the appropriate search tool(s). If the image is unclear or unrelated to halal products, ask the user for a clearer photo.
 
-
-
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are Halalify's intelligent product search agent with access to a database of 200,000+ halal-certified products (food items, ingredients, additives, manufactured goods, creams, cosmetics or any type of halal product). You are a conversational-style assistant, but don't entertain queries that aren't related to halal products search.
+
+## MANDATORY FINAL STEP
+
+After completing all searches — or deciding not to search — you MUST call `FinalAnswer` as your absolute last action. Never skip this step.
+
+**FinalAnswer fields:**
+- `response` — Your natural language message to the user (follow the Response Format below)
+- `products` — Product objects you select from the search results to show the user. Pick the most relevant ones. **Maximum 10** unless the user explicitly asks for more. Pass an empty list if no products were found or the query is irrelevant. Only include products returned by the search tools — do not fabricate or modify product data.
+
+After the `FinalAnswer` tool call completes, output exactly: [DONE]
+
+## RESPONSE FORMAT (for FinalAnswer.response)
+
+**If products were found:**
+- 1 product → "Here is the relevant product I found for you."
+- 2+ products → "Here are the relevant products I found for you."
+
+**If no products were found:** Explain why results may be missing and suggest how the user could refine their query.
+**If irrelevant query:** Politely inform the user you only assist with halal product searches.
 
 ## PRODUCT SCHEMA
 
@@ -317,53 +334,30 @@ Before passing any filter value to a tool, normalize it:
 
 **If the typo or value is too ambiguous to correct confidently** — do NOT call any tool. Instead ask the user to clarify that specific field before proceeding.
 
-## MANDATORY FINAL STEP
-
-After completing all searches — or deciding not to search — you MUST call `FinalAnswer` as your absolute last action. Never skip this step.
-
-**FinalAnswer fields:**
-- `response` — Your natural language message to the user (follow the Response Format below)
-- `products` — Product objects you select from the search results to show the user. Pick the most relevant ones. **Maximum 10** unless the user explicitly asks for more. Pass an empty list if no products were found or the query is irrelevant. Only include products returned by the search tools — do not fabricate or modify product data.
-
-After the `FinalAnswer` tool call completes, output exactly: [DONE]
-
-## RESPONSE FORMAT (for FinalAnswer.response)
-
-**If products were found:**
-- 1 product → "Here is the relevant product I found for you."
-- 2+ products → "Here are the relevant products I found for you."
-
-**If no products were found:** Explain why results may be missing and suggest how the user could refine their query.
-**If irrelevant query:** Politely inform the user you only assist with halal product searches."""
+"""
 
 
 
-llm = ChatFireworks(
-    model="accounts/fireworks/models/kimi-k2p5",
-    api_key=os.getenv("FIREWORKS_AI_API_KEY"),
-    temperature=0,
-)
-
-# llm = ChatGroq(
-#     model="meta-llama/llama-4-scout-17b-16e-instruct",
-#     api_key=os.getenv("GROQ_API_KEY"),
+# llm = ChatFireworks(
+#     model="accounts/fireworks/models/kimi-k2p5",
+#     api_key=os.getenv("FIREWORKS_AI_API_KEY"),
 #     temperature=0,
 # )
+
+llm = ChatGroq(
+    model="openai/gpt-oss-120b",
+    api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0,
+)
 
 agent = create_agent(model= llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=InMemorySaver())
 
 
 
-# def build_image_user_content(text: str, base64: str, mime_type: str) -> list:
-#     return [
-#         {"type": "text", "text": text},
-#         {
-#             "type": "image_url",
-#             "image_url": {
-#                 "url": f"data:{mime_type};base64,{base64}"
-#             }
-#         },
-#     ]
+def build_image_url(base64: str, mime_type: str) -> list:
+    image_url = f"data:{mime_type};base64,{base64}"
+    return image_url 
+            
 
 
 async def run_agent(query: str | list, config: dict = None) -> dict:
