@@ -9,8 +9,6 @@ import uuid
 import os
 import json
 
-from backend.llms.vision_llm import invoke_llm_with_image
-
 load_dotenv(override=True)
 
 app = FastAPI()
@@ -59,8 +57,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
                 text = data.get("message", "").strip() or "Is this halal?"
                 try:
-                    image_url = build_image_user_url(base64_data, mime_type)
-                    result = await invoke_llm_with_image()
+                    query_content = build_image_user_content(text, base64_data, mime_type)
+                    result = await run_agent(query_content, config)
                 except Exception as e:
                     print(f"[WS] run_agent error: {e}")
                     result = {"response": "An error occurred. Please try again.", "documents": []}

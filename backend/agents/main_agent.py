@@ -352,8 +352,18 @@ llm = ChatFireworks(
 
 agent = create_agent(model= llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=InMemorySaver())
 
-def build_image_user_url(base64: str, mime_type: str) -> str:
-    return f"data:{mime_type};base64,{base64}"
+
+
+# def build_image_user_content(text: str, base64: str, mime_type: str) -> list:
+#     return [
+#         {"type": "text", "text": text},
+#         {
+#             "type": "image_url",
+#             "image_url": {
+#                 "url": f"data:{mime_type};base64,{base64}"
+#             }
+#         },
+#     ]
 
 
 async def run_agent(query: str | list, config: dict = None) -> dict:
