@@ -10,7 +10,7 @@ from langchain_fireworks import FireworksEmbeddings, ChatFireworks
 from langchain.agents import create_agent
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
-
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from config.typesense_client import TS_CLIENT
 from collection.search.search_collection import search_collection
 from log.logger import logger
@@ -337,12 +337,12 @@ Before passing any filter value to a tool, normalize it:
 """
 
 
-
 # llm = ChatFireworks(
 #     model="accounts/fireworks/models/kimi-k2p5",
 #     api_key=os.getenv("FIREWORKS_AI_API_KEY"),
 #     temperature=0,
 # )
+
 
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
@@ -350,14 +350,13 @@ llm = ChatGroq(
     temperature=0,
 )
 
-agent = create_agent(model= llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=InMemorySaver())
 
+agent = create_agent(model= llm, system_prompt=SYSTEM_PROMPT, tools=tools, checkpointer=InMemorySaver())
 
 
 def build_image_url(base64: str, mime_type: str) -> list:
     image_url = f"data:{mime_type};base64,{base64}"
     return image_url 
-            
 
 
 async def run_agent(query: str | list, config: dict = None) -> dict:
@@ -368,7 +367,7 @@ async def run_agent(query: str | list, config: dict = None) -> dict:
         config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
     )
     messages = result["messages"]
-
+    print(messages)
     for msg in reversed(messages):
         for tc in getattr(msg, "tool_calls", []):
             if tc.get("name") == "FinalAnswer":
