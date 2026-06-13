@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
@@ -9,7 +9,16 @@ import GoogleButton from '@/components/auth/GoogleButton'
 // Unsplash photo: colorful spice market (no people)
 const BG_IMAGE = 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=1400&q=80&auto=format&fit=crop'
 
+// Suspense wrapper required because useSearchParams() opts out of static rendering.
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
