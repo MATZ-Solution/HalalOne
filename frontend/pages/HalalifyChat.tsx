@@ -4,13 +4,15 @@ import SendIcon from "../icons/send_icon.svg"
 import ImageIcon from "../icons/image_icon.svg"
 import ScanIcon from "../icons/scan_icon.svg"
 import QRBarcodeScanner from "@/components/QRBarcodeScanner"
+import ImageExtractionDialog from "@/components/ImageExtractionDialog"
 import { useRef, useState, useEffect, type ChangeEvent } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, m } from "framer-motion"
 import type { Product } from "@/types/product"
 import { statusBadge, statusAccent, statusDot } from "@/utils/halalStatus"
 import ProductDetailModal from "@/components/product/ProductDetailModal"
 import Markdown, { type Theme } from "@/components/markdown/Markdown"
 import ThemeToggle from "@/components/ThemeToggle"
+import SearchResultsDialog from "@/components/SearchResultsDialog"
 
 type AttachedImage = {
     previewUrl: string
@@ -29,6 +31,11 @@ type Message = {
 type ToolCall = {
     tool: string
     args: Record<string, unknown>
+}
+
+type ReasoningContent = {
+    node: string
+    reasoning: string
 }
 
 const THEME_STORAGE_KEY = "halalify-theme"
@@ -62,28 +69,68 @@ async function fileToAttachedImage(file: File): Promise<AttachedImage> {
 }
 
 export default function HalalifyChat() {
-    const { lastMessage, sendMessage, messageCount } = useWebsocket(`${process.env.NEXT_PUBLIC_BACKEND_WS_URL}/ws`)
-
+    const [currentThreadID, setCurrentThreadID] = useState<string>(crypto.randomUUID())
+    const { isConnected, lastMessage, sendMessage, messageCount } = useWebsocket(`${process.env.NEXT_PUBLIC_BACKEND_WS_URL}/ws/${currentThreadID}`)
     const inputRef = useRef<HTMLDivElement | null>(null)
     const fileInputRef = useRef<HTMLInputElement | null>(null)
     const messagesEndRef = useRef<HTMLDivElement | null>(null)
     const [theme, setTheme] = useState<Theme>("dark")
     const [textPresent, setTextPresent] = useState(false)
-    const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null)
+    const [pendingImage, setPendingImage] = useState<AttachedImage | null>(null)
+    const [dialogOpen, setDialogOpen] = useState(false)
+    const [searchDialogOpen, setSearchDialogOpen] = useState({ showButton: false, showDialog: false })
     const [messages, setMessages] = useState<Message[]>([])
     const [loading, setLoading] = useState(false)
-    const [statusMessage, setStatusMessage] = useState<string | null>(null)
+    const [statusMessage, setStatusMessage] = useState<string | null>("Thinking through")
     const [loadingPhrase, setLoadingPhrase] = useState("")
+    const [intermediateSearchResults, setIntermediateSearchResults] = useState<{ tool_name: string, search_results: Product[] } | null>(null)
     const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
-    const [toolDetailsOpen, setToolDetailsOpen] = useState(false)
+    const [reasoningContent, setReasoningContent] = useState<ReasoningContent[]>([])
+    const [detailsOpen, setDetailsOpen] = useState(false)
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
     const [scannerOpen, setScannerOpen] = useState(false)
-
     const hasMessages = messages.length > 0
     const isLight = theme === "light"
-    const canSend = (textPresent || !!attachedImage) && !loading
+    const canSend = textPresent && !loading
     const sendActive = isLight ? "#000000" : "#ffffff"
     const sendInactive = isLight ? "#00000040" : "#ffffff40"
+    type Alerts = "connection" | "server crash" | "high load"
+    const [permanentAlertDetails, setPermanentAlertDetails] = useState<{ alertType: Alerts, showAlert: boolean, alertContent: string | null }[]>([])
+    const currentAlerts = useRef<(Alerts)[]>([])
+    const [expandAlerts, setExpandAlerts] = useState<boolean>(false)
+    const isConnectedRef = useRef(isConnected)
+
+    useEffect(() => {
+        isConnectedRef.current = isConnected
+    }, [isConnected])
+
+    useEffect(() => {
+        let timeoutID: NodeJS.Timeout | null = null
+        if (!isConnected && !currentAlerts.current.includes("connection")) {
+            // wait 3 seconds before showing alert
+            timeoutID = setTimeout(() => {
+                if (isConnectedRef.current) {
+                    return
+                };
+                setPermanentAlertDetails((prev) => [...(prev || []),
+                {
+                    alertType: "connection",
+                    showAlert: true,
+                    alertContent: 'NOT CONNECTED'
+                }])
+                currentAlerts.current.push("connection")
+            }, 3000);
+        } else {
+            if (currentAlerts.current.includes("connection")) {
+                setPermanentAlertDetails((prev) => prev?.filter(m => m.alertType != "connection"))
+                currentAlerts.current = currentAlerts.current.filter(a => a !== "connection");
+            }
+        }
+        return () => { if (timeoutID) clearTimeout(timeoutID) }
+
+    }, [isConnected])
+
+
 
     useEffect(() => {
         const stored = localStorage.getItem(THEME_STORAGE_KEY)
@@ -102,11 +149,28 @@ export default function HalalifyChat() {
         if (!lastMessage) return
         try {
             const data = JSON.parse(lastMessage)
-            if (data.type === "status") {
+            console.log("Data", data)
+            if (data.type === "tool_status") {
                 setStatusMessage(data.message)
+                setDetailsOpen(true)
                 if (data.tool && data.args !== undefined) {
                     setToolCalls(prev => [...prev, { tool: data.tool, args: data.args }])
                 }
+            } else if (data.type === "reasoning") {
+
+                setReasoningContent(prev => {
+                    const exists = prev.some(m => m.node === data.node)
+
+                    if (exists) {
+                        return prev.map(m => m.node === data.node ? { ...m, reasoning: m.reasoning + data.reasoning } : m)
+                    }
+                    else {
+                        return [...(prev || []), { node: data.node, reasoning: data.reasoning }]
+                    }
+                })
+            } else if (data.type === "search_results") {
+                setIntermediateSearchResults({ tool_name: data.tool, search_results: data.search_results ?? [] })
+                setSearchDialogOpen(prev => ({ ...prev, showButton: true }))
             } else if (data.type === "results") {
                 setMessages(prev => [...prev, {
                     id: crypto.randomUUID(),
@@ -117,7 +181,10 @@ export default function HalalifyChat() {
                 setLoading(false)
                 setStatusMessage(null)
                 setToolCalls([])
-                setToolDetailsOpen(false)
+                setReasoningContent([])
+                setIntermediateSearchResults({ tool_name: "", search_results: [] })
+                setSearchDialogOpen({ showButton: false, showDialog: false })
+                setDetailsOpen(false)
             }
         } catch { }
     }, [messageCount])
@@ -126,21 +193,55 @@ export default function HalalifyChat() {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
     }, [messages, loading])
 
-    const clearAttachedImage = () => {
-        if (attachedImage) URL.revokeObjectURL(attachedImage.previewUrl)
-        setAttachedImage(null)
-    }
-
     const handleImageSelect = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file || !file.type.startsWith("image/")) return
-        if (attachedImage) URL.revokeObjectURL(attachedImage.previewUrl)
         const img = await fileToAttachedImage(file)
-        setAttachedImage(img)
+        setPendingImage(img)
+        setDialogOpen(true)
         e.target.value = ""
     }
 
     const pickPhrase = () => LOADING_PHRASES[Math.floor(Math.random() * LOADING_PHRASES.length)]
+
+    const handleExtractionDialogClose = () => {
+        if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+        setPendingImage(null)
+        setDialogOpen(false)
+    }
+
+    const handleSearchResultDialogClose = () => {
+        setSearchDialogOpen(prev => ({ ...prev, showDialog: false }))
+    }
+
+    const handleDialogConfirm = (
+        fields: Record<string, string | string[]>,
+        message: string,
+        imageDataUrl: string,
+    ) => {
+        setMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: "user",
+            content: message,
+            imageDataUrl,
+        }])
+        sendMessage(JSON.stringify({
+            type: "run_with_fields",
+            fields,
+            ...(message ? { message } : {}),
+        }))
+        if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+        setPendingImage(null)
+        setDialogOpen(false)
+        setLoading(true)
+        setStatusMessage(null)
+        setToolCalls([])
+        setReasoningContent([])
+        setIntermediateSearchResults({ tool_name: "", search_results: [] })
+        setSearchDialogOpen({ showButton: false, showDialog: false })
+        setDetailsOpen(false)
+        setLoadingPhrase(pickPhrase())
+    }
 
     const handleScanResult = (query: string) => {
         setScannerOpen(false)
@@ -149,113 +250,67 @@ export default function HalalifyChat() {
         setLoading(true)
         setStatusMessage(null)
         setToolCalls([])
-        setToolDetailsOpen(false)
+        setReasoningContent([])
+        setIntermediateSearchResults({ tool_name: "", search_results: [] })
+        setSearchDialogOpen({ showButton: false, showDialog: false })
+        setDetailsOpen(false)
         setLoadingPhrase(pickPhrase())
     }
 
     const handleSend = () => {
         const text = inputRef.current?.textContent?.trim() || ""
+        if (!text) return
 
-        if (attachedImage) {
-            const imageDataUrl = `data:${attachedImage.mimeType};base64,${attachedImage.base64}`
-            sendMessage(JSON.stringify({
-                type: "image",
-                ...(text ? { message: text } : {}),
-                base64: attachedImage.base64,
-                mime_type: attachedImage.mimeType,
-            }))
-            URL.revokeObjectURL(attachedImage.previewUrl)
-            setAttachedImage(null)
-            setMessages(prev => [...prev, {
-                id: crypto.randomUUID(),
-                role: "user",
-                content: text,
-                imageDataUrl,
-            }])
-        } else {
-            if (!text) return
-            sendMessage(JSON.stringify({ type: "prompt", message: text }))
-            setMessages(prev => [...prev, { id: crypto.randomUUID(), role: "user", content: text }])
-        }
+        sendMessage(JSON.stringify({ type: "prompt", message: text }))
+        setMessages(prev => [...prev, { id: crypto.randomUUID(), role: "user", content: text }])
 
         if (inputRef.current) inputRef.current.textContent = ""
         setTextPresent(false)
         setLoading(true)
         setStatusMessage(null)
         setToolCalls([])
-        setToolDetailsOpen(false)
+        setReasoningContent([])
+        setIntermediateSearchResults({ tool_name: "", search_results: [] })
+        setSearchDialogOpen({ showButton: false, showDialog: false })
+        setDetailsOpen(false)
         setLoadingPhrase(pickPhrase())
     }
 
+
     const inputBox = (
-        <div className={`relative flex flex-col gap-y-2 w-full p-2 rounded-lg border ${isLight ? "border-black/30" : "border-white/30"}`}>
+        <div className={`w-full p-2 rounded-lg border ${isLight ? "border-black/30" : "border-white/30"}`}>
+            {/* {disconnection Status Alert} */}
+
             <div className="flex gap-x-2 items-end w-full">
-                <motion.div className="flex flex-col flex-1 min-w-0 gap-y-2">
-                    <div className="relative">
-                        {!textPresent && !attachedImage && (
-                            <span className={`absolute left-0 top-0 switzer-400 pointer-events-none ${isLight ? "text-black/40" : "text-white/40"}`}>
-                                Is Nurpur Milk halal?
-                            </span>
-                        )}
-                        {!textPresent && attachedImage && (
-                            <span className={`absolute left-0 top-0 switzer-400 pointer-events-none ${isLight ? "text-black/40" : "text-white/40"}`}>
-                                Is this halal?
-                            </span>
-                        )}
-                        <div
-                            ref={inputRef}
-                            onInput={() => {
-                                const t = inputRef.current?.textContent?.trim() || ""
-                                setTextPresent(t.length > 0)
-                            }}
-                            onPaste={(e) => {
+                <div className="relative flex-1 min-w-0">
+                    {!textPresent && (
+                        <span className={`absolute left-0 top-0 switzer-400 pointer-events-none ${isLight ? "text-black/40" : "text-white/40"}`}>
+                            Is Nurpur Milk halal?
+                        </span>
+                    )}
+                    <div
+                        ref={inputRef}
+                        onInput={() => {
+                            const t = inputRef.current?.textContent?.trim() || ""
+                            setTextPresent(t.length > 0)
+                        }}
+                        onPaste={(e) => {
+                            e.preventDefault()
+                            const t = e.clipboardData.getData("text/plain")
+                            document.execCommand("insertText", false, t)
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault()
-                                const t = e.clipboardData.getData("text/plain")
-                                document.execCommand("insertText", false, t)
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault()
-                                    if (canSend) handleSend()
-                                }
-                            }}
-                            contentEditable
-                            className={`focus:outline-none w-full switzer-500 max-h-[200px] overflow-y-auto min-h-6 ${isLight ? "text-black" : "text-white"}`}
-                        />
-                    </div>
+                                if (canSend) handleSend()
+                            }
+                        }}
+                        contentEditable={isConnected}
+                        className={`focus:outline-none w-full switzer-500 max-h-[200px] overflow-y-auto min-h-6 ${isLight ? "text-black" : "text-white"}`}
+                    />
+                </div>
 
-                    <AnimatePresence>
-                        {attachedImage && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="relative w-14 h-14 shrink-0"
-                            >
-                                <img
-                                    src={attachedImage.previewUrl}
-                                    alt="Attached"
-                                    className={`w-14 h-14 rounded-lg object-cover border ${isLight ? "border-black/20" : "border-white/20"}`}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={clearAttachedImage}
-                                    aria-label="Remove image"
-                                    className={`absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full border transition-colors ${isLight
-                                        ? "bg-white/90 border-black/20 text-black/70 hover:text-black hover:bg-black/10"
-                                        : "bg-black/90 border-white/20 text-white/70 hover:text-white hover:bg-white/10"
-                                    }`}
-                                >
-                                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                                        <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                                    </svg>
-                                </button>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </motion.div>
-
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                <input disabled={!isConnected} ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
 
                 <button
                     type="button"
@@ -267,9 +322,9 @@ export default function HalalifyChat() {
                 </button>
                 <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => !loading && fileInputRef.current?.click()}
                     aria-label="Upload image"
-                    className={`shrink-0 w-6 h-6 transition-colors cursor-pointer ${isLight ? "text-black/40 hover:text-black" : "text-white/40 hover:text-white/80"}`}
+                    className={`shrink-0 w-6 h-6 transition-colors ${loading ? "cursor-default opacity-30" : "cursor-pointer"} ${isLight ? "text-black/40 hover:text-black" : "text-white/40 hover:text-white/80"}`}
                 >
                     <ImageIcon className="w-6 h-6 fill-current" />
                 </button>
@@ -310,7 +365,7 @@ export default function HalalifyChat() {
             {statusMessage ? (
                 <button
                     type="button"
-                    onClick={() => toolCalls.length > 0 && setToolDetailsOpen(p => !p)}
+                    onClick={() => toolCalls.length > 0 && setDetailsOpen(p => !p)}
                     className={`flex items-center gap-x-1.5 text-left ${toolCalls.length > 0 ? "cursor-pointer" : "cursor-default"}`}
                 >
                     <motion.p
@@ -334,7 +389,7 @@ export default function HalalifyChat() {
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             className={`shrink-0 ${isLight ? "text-black/30" : "text-white/30"}`}
-                            animate={{ rotate: toolDetailsOpen ? 180 : 0 }}
+                            animate={{ rotate: detailsOpen ? 180 : 0 }}
                             transition={{ duration: 0.2 }}
                         >
                             <polyline points="6 9 12 15 18 9" />
@@ -364,30 +419,91 @@ export default function HalalifyChat() {
                     </motion.svg>
                 </div>
             )}
-
-            {/* Tool call dropdown */}
             <AnimatePresence>
-                {toolDetailsOpen && toolCalls.length > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden flex flex-col gap-y-2 pt-1"
-                    >
-                        {toolCalls.map((tc, i) => (
-                            <div
-                                key={i}
-                                className={`rounded-lg p-3 flex flex-col gap-y-1.5 ${isLight ? "bg-black/4 border border-black/8" : "bg-white/4 border border-white/8"}`}
-                            >
-                                <p className={`text-xs font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>
-                                    {tc.tool}
-                                </p>
-                                <pre className={`text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all leading-relaxed ${isLight ? "text-black/35" : "text-white/35"}`}>
-                                    {JSON.stringify(tc.args, null, 2)}
-                                </pre>
-                            </div>
-                        ))}
+                {detailsOpen && (
+                    <motion.div className={`flex gap-x-4 ${isLight ? 'bg-black/4 border border-black/8 scrollbar-thin-light' : 'bg-white/4 border border-white/8 scrollbar-thin-dark'} rounded-lg max-h-50 overflow-y-auto p-3`}>
+                        {/* Tool call dropdown */}
+                        <AnimatePresence>
+                            {detailsOpen && toolCalls.length > 0 && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="flex flex-col shrink-0 min-w-1/2 gap-y-2"
+                                >
+                                    <strong className={`mb-1.5 text-sm font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>Tool calls</strong>
+                                    <div className="w-full flex justify-center mb-2.5">
+                                        <div className={`w-[98%] border-t ${isLight ? "border-black/10" : "border-white/10"}`} />
+                                    </div>
+                                    {toolCalls.map((tc, i) => (
+                                        <div
+                                            key={i}
+                                            className={`flex flex-col gap-y-1.5`}
+                                        >
+                                            <p className={`text-xs font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>
+                                                {tc.tool}
+                                            </p>
+                                            <pre className={`text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all leading-relaxed ${isLight ? "text-black/35" : "text-white/35"}`}>
+                                                {JSON.stringify(tc.args, null, 2)}
+                                            </pre>
+                                        </div>
+                                    ))}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                        {/* {Reasoning dropdown} */}
+                        <AnimatePresence>
+
+                            {detailsOpen && reasoningContent && reasoningContent.length > 0 && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="flex flex-col gap-y-2"
+                                >
+                                    <strong className={`mb-1.5 text-sm font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>Graph Execution</strong>
+                                    <div className="w-full flex justify-center mb-2.5">
+                                        <div className={`w-[98%] border-t ${isLight ? "border-black/10" : "border-white/10"}`} />
+                                    </div>
+                                    {reasoningContent.map((r, i) => (
+                                        i === reasoningContent.length - 1 ? (
+                                            // apply bottom padding to the last item
+                                            <div className="flex flex-col gap-y-2 pb-3" key={i}>
+                                                <div className={`p-1 rounded-xs border w-max ${isLight ? "border-red-400/30" : "border-green-500/20"}`}>
+                                                    <p className={`text-xs font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>{r.node}</p>
+                                                </div>
+                                                <div>
+                                                    <p className={`text-xs font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>{r.reasoning}</p>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col gap-y-2" key={i}>
+                                                <div className={`p-1 rounded-xs border w-max ${isLight ? "border-red-400/30" : "border-green-500/20"}`}>
+                                                    <p className={`text-xs font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>{r.node}</p>
+                                                </div>
+                                                <div>
+                                                    <p className={`text-xs font-mono ${isLight ? "text-black/50" : "text-white/50"}`}>{r.reasoning}</p>
+                                                </div>
+                                            </div>
+                                        )
+                                    ))}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                    </motion.div>
+                )}
+            </AnimatePresence>
+            <AnimatePresence>
+                {searchDialogOpen.showButton && (
+                    <motion.div onClick={() => {
+                        setSearchDialogOpen(prev => ({ ...prev, showDialog: true }))
+                    }} initial={{ opacity: 0 }} animate={{ opacity: [0.4, 0.8, 1] }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+                        className={`w-max px-2 py-1 cursor-pointer flex gap-x-2 items-center rounded-xs border ${isLight ? "border-red-400/30" : "border-green-500/20"}`}>
+                        <div className={`w-2 h-2 ${isLight ? "bg-red-400/30" : "bg-green-500/20"} rounded-full`}></div>
+                        <p className={`text-xs font-mono ${isLight ? " text-black /50" : "text-white/50"}`}>See search progress</p>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -396,6 +512,41 @@ export default function HalalifyChat() {
 
     return (
         <div className={`w-full h-screen flex flex-col transition-colors duration-300 overflow-hidden ${isLight ? "bg-white" : "bg-black"}`}>
+
+            {/* {alertDetails.showAlert && (
+                <motion.div className="fixed w-full top-4 flex justify-center z-10">
+                    <motion.div className="animate-pulse left-[40%] bg-orange-700 w-60 p-0.5 rounded-sm flex items-center">
+                        <strong className="roboto-500 text-sm tracking-tight text-white ml-4">{alertDetails?.alertType}</strong>
+                    </motion.div>
+                </motion.div>
+            )} */}
+
+            <AnimatePresence>
+                {permanentAlertDetails && permanentAlertDetails.length > 0 && (
+                    <motion.div className="w-full fixed top-6 right-6 flex flex-col gap-y-2 items-center">
+                        {permanentAlertDetails.slice(0, expandAlerts ? permanentAlertDetails.length - 1 : 1).map((m, i) => {
+                            return (
+                                <motion.div className="w-max" key={i}>
+                                    {permanentAlertDetails.length > 1 && (
+                                        <div onClick={() => {
+                                            setExpandAlerts(prev => !prev)
+                                        }} className="z-20 absolute cursor-pointer bg-white -top-4 right-0 w-5.5 h-5.5 flex justify-center items-center rounded-full border border-orange-400/40">
+                                            <strong className={`switzer-800 text-xs ${isLight ? "text-orange-700" : "text-orange-700"}`}>
+                                                {permanentAlertDetails.length}+
+                                            </strong>
+                                        </div>
+                                    )}
+                                    <div className="animate-pulse left-[40%] bg-orange-700 w-60 p-0.5 rounded-sm flex items-center">
+                                        <strong className="roboto-500 text-sm tracking-tight text-white ml-4">{m.alertContent}</strong>
+                                    </div>
+
+                                </motion.div>
+                            )
+                        })}
+                        <motion.div />
+                    </motion.div>
+                )}
+            </AnimatePresence>
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
             <AnimatePresence mode="wait">
@@ -408,7 +559,7 @@ export default function HalalifyChat() {
                         <div className="w-[80%] md:w-[60%] lg:w-[50%] flex flex-col gap-y-6">
                             <div>
                                 <p className={`text-6xl tracking-tighter switzer-500 ${isLight ? "text-black" : "text-white"}`}>
-                                    Halalify
+                                    Halal One
                                 </p>
                                 <div className="rounded-sm switzer-500 text-white text-xs bg-green-600 px-2 h-4 w-max">
                                     <p>Check Halal Status</p>
@@ -479,7 +630,7 @@ export default function HalalifyChat() {
                                                                 className={`relative group rounded-xl p-4 flex flex-col gap-y-3 transition-all duration-200 overflow-hidden cursor-pointer focus:outline-none ${isLight
                                                                     ? "border border-black/8 bg-black/2 hover:bg-black/4 hover:border-black/15 focus-visible:ring-1 focus-visible:ring-black/20"
                                                                     : "border border-white/8 bg-white/2 hover:bg-white/4 hover:border-white/15 focus-visible:ring-1 focus-visible:ring-white/20"
-                                                                }`}
+                                                                    }`}
                                                             >
                                                                 <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl ${statusAccent(product.halal_status ?? "")}`} />
                                                                 <div className="pl-3 flex flex-col gap-y-3">
@@ -498,7 +649,7 @@ export default function HalalifyChat() {
                                                                                 <span key={j} className={`text-xs switzer-400 px-2 py-0.5 rounded-md border ${isLight
                                                                                     ? "text-black/40 bg-black/5 border-black/8"
                                                                                     : "text-white/40 bg-white/5 border-white/8"
-                                                                                }`}>
+                                                                                    }`}>
                                                                                     {cat}
                                                                                 </span>
                                                                             ))}
@@ -561,6 +712,109 @@ export default function HalalifyChat() {
                 product={selectedProduct}
                 onClose={() => setSelectedProduct(null)}
             />
+
+            <AnimatePresence>
+                {dialogOpen && pendingImage && (
+                    <ImageExtractionDialog
+                        key="image-dialog"
+                        image={pendingImage}
+                        theme={theme}
+                        onConfirm={handleDialogConfirm}
+                        onClose={handleExtractionDialogClose}
+                    />
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {/* some conditional logic here */}
+                {searchDialogOpen.showDialog && (
+                    <SearchResultsDialog onClose={handleSearchResultDialogClose} theme={theme} tool_name={intermediateSearchResults?.tool_name ?? "Tool"} search_results={intermediateSearchResults?.search_results ?? []}></SearchResultsDialog>
+                )}
+            </AnimatePresence>
         </div>
     )
 }
+
+
+const dummyProducts: Product[] = [
+    {
+        canonical_id: "prod_001",
+        norm_name: "Organic Chicken Breast",
+        companies: ["Tyson Foods", "Perdue Farms"],
+        cert_bodies: ["USDA Organic", "Halal Certification Council"],
+        typical_uses: ["Grilling", "Roasting", "Stir-fry"],
+        marketplace: ["Walmart", "Kroger", "Whole Foods"],
+        category_l1: "Meat & Poultry",
+        category_l2: "Chicken",
+        halal_status: "Halal Certified",
+        sold_in: ["United States", "Canada"],
+        cert_numbers: ["USDA-ORG-12345", "HAL-67890"],
+        health_info: ["High protein", "No antibiotics", "Free-range"],
+        fda_numbers: ["FDA-789-012"],
+        barcodes: ["0721234567890", "0721234567891"]
+    },
+    {
+        canonical_id: "prod_002",
+        norm_name: "Aloe Vera Gel Drink",
+        companies: ["Lily of the Desert"],
+        cert_bodies: ["Halal Food Authority", "Kosher Certification"],
+        typical_uses: ["Digestive health", "Hydration", "Skin health"],
+        marketplace: ["Amazon", "CVS", "Walgreens"],
+        category_l1: "Beverages",
+        category_l2: "Functional Drinks",
+        halal_status: "Halal Certified",
+        sold_in: ["United States", "UK", "UAE"],
+        cert_numbers: ["HFA-45678", "KOS-112233"],
+        health_info: ["Supports digestion", "Rich in antioxidants", "Detoxifying"],
+        fda_numbers: ["FDA-456-789"],
+        barcodes: ["0851234567890"]
+    },
+    {
+        canonical_id: "prod_003",
+        norm_name: "Coconut Milk Powder",
+        companies: ["Grace Foods", "Thai Kitchen"],
+        cert_bodies: ["Halal Monitoring Committee"],
+        typical_uses: ["Curries", "Smoothies", "Baking"],
+        marketplace: ["Target", "Costco", "Aldi"],
+        category_l1: "Pantry Staples",
+        category_l2: "Milk & Cream Substitutes",
+        halal_status: "Halal Certified",
+        sold_in: ["United States", "Australia", "Singapore"],
+        cert_numbers: ["HMC-98765"],
+        health_info: ["Dairy-free", "Vegan", "Lactose-free"],
+        fda_numbers: ["FDA-321-654"],
+        barcodes: ["0412345678901", "0412345678902"]
+    },
+    {
+        canonical_id: "prod_004",
+        norm_name: "Beef Pepperoni Sticks",
+        companies: ["Jack Link's", "Tillamook"],
+        cert_bodies: ["IFANCA Halal"],
+        typical_uses: ["Snacking", "Lunch boxes", "Hiking"],
+        marketplace: ["7-Eleven", "Walmart", "Target"],
+        category_l1: "Snacks",
+        category_l2: "Meat Snacks",
+        halal_status: "Halal Certified",
+        sold_in: ["United States", "Canada", "UK"],
+        cert_numbers: ["IFANCA-554433"],
+        health_info: ["High protein", "Low carb", "No MSG"],
+        fda_numbers: ["FDA-987-123"],
+        barcodes: ["0712345678902"]
+    },
+    {
+        canonical_id: "prod_005",
+        norm_name: "Turmeric Ginger Tea",
+        companies: ["Traditional Medicinals", "Yogi Tea"],
+        cert_bodies: ["Halal Quality International"],
+        typical_uses: ["Immune support", "Evening tea", "Anti-inflammatory"],
+        marketplace: ["Sprouts", "Whole Foods", "Amazon"],
+        category_l1: "Beverages",
+        category_l2: "Herbal Tea",
+        halal_status: "Halal Certified",
+        sold_in: ["United States", "Germany", "France"],
+        cert_numbers: ["HQI-778899"],
+        health_info: ["Caffeine-free", "Anti-inflammatory", "Antioxidant-rich"],
+        fda_numbers: ["FDA-654-321"],
+        barcodes: ["0912345678903", "0912345678904"]
+    }
+]

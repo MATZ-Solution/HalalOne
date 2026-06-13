@@ -79,30 +79,19 @@ Return only JSON with keys:
 12. fda_numbers (string[])
 13. barcodes (string[])
 """
-messages = [SystemMessage(SYSTEM_INSTRUCTIONS)]
-
 
 # structured_llm = vision_llm.with_structured_output(ProductInfo, method="json_schema")
 
-async def invoke_llm_with_image(image_path:str) -> Dict[str, Any]:
-    if not image_path:
-        return {"error": "No valid image path found"}
-    image_url = None
-    with open(image_path, "rb") as image_file:
-        base_64_string = base64.b64encode(image_file.read()).decode('utf-8')
-    
-    if base_64_string:
-        image_url = f"data:image/jpeg;base64,{base_64_string}"
-    elif not base_64_string or not image_url:
-        return {"error": "No image found"}
-    
-    messages.append(HumanMessage(content=[{
+async def invoke_llm_with_image(image_url: str) -> Dict[str, Any]:
+    if not image_url:
+        return {"error": "No valid image found"}
+    messages = [SystemMessage(SYSTEM_INSTRUCTIONS), HumanMessage(content=[{
         'type': 'image_url',
         'image_url': {
             'url': image_url
         }
-    }]))
-    
+    }])]
+
     response = await asyncio.to_thread(
         vision_llm.invoke, messages
     )
@@ -110,17 +99,10 @@ async def invoke_llm_with_image(image_path:str) -> Dict[str, Any]:
     response_content = response.content
     if not response_content:
         return {"error": "No response from LLM"}
-    try:
-        # Extract JSON if LLM wraps it in markdown/text
-        json_str = re.search(r'\{.*\}', response_content, re.DOTALL)
-        if json_str:
-            return json.loads(json_str.group())
-        else:
-            return {"error": "No valid json found in the response."}
-    except Exception:
-        raise 
+    # Extract JSON if LLM wraps it in markdown/text
+    json_str = re.search(r'\{.*\}', response_content, re.DOTALL)
+    if json_str:
+        return json.loads(json_str.group())
+    else:
+        return {"error": "No valid json found in the response."}
     
-# response = invoke_llm_with_image(r"C:\Users\anas_\Downloads\WhatsApp Image 2025-12-22 at 3.34.56 PM.jpeg")
-
-# print(f"Pre-mature repsonse: {response} \n")
-# print(f"Mature response: {response.replace('```json','')}")

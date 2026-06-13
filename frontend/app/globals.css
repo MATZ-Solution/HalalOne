@@ -208,20 +208,44 @@ body {
     font-weight: 900;
   }
 
-  /* Scrollbar */
+  /* Scrollbar — dark theme */
   .scrollbar-thin-dark {
-    scrollbar-width: auto;
-    scrollbar-color: #ffffff transparent;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05);
   }
   .scrollbar-thin-dark::-webkit-scrollbar {
     width: 4px;
   }
   .scrollbar-thin-dark::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 9999px;
   }
   .scrollbar-thin-dark::-webkit-scrollbar-thumb {
-    background-color: #1a1a1a;
+    background-color: rgba(255, 255, 255, 0.2);
     border-radius: 9999px;
+  }
+  .scrollbar-thin-dark::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Scrollbar — light theme */
+  .scrollbar-thin-light {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
+  }
+  .scrollbar-thin-light::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin-light::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 9999px;
+  }
+  .scrollbar-thin-light::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 9999px;
+  }
+  .scrollbar-thin-light::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.35);
   }
 
   /* Raleway */
