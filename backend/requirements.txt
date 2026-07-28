@@ -1,0 +1,16 @@
+typesense
+fastapi
+uvicorn[standard]
+gunicorn
+python-dotenv
+pydantic
+langchain
+langchain-core
+langchain-fireworks
+langgraph
+langchain-groq
+supabase
+httpx
+
+valkey
+structlog

@@ -1,0 +1,4 @@
+typesense-data/
+.claude/
+.env
+__pycache__/
