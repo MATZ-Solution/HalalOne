@@ -1,4 +1,24 @@
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: fastapi_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: nextjs_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
   typesense:
     image: typesense/typesense:30.2
     container_name: typesense
@@ -8,5 +28,5 @@ services:
     volumes:
       - ./typesense-data:/data
     environment:
-      - TYPESENSE_API_KEY=abcd
+      TYPESENSE_API_KEY: abcd
     command: --data-dir /data --api-key=abcd --enable-cors
