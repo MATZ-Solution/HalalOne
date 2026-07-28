@@ -9,9 +9,9 @@ from typing import List, TypedDict, Annotated
 class SearchAgentState(TypedDict):
     # raw search data
     user_prompt: str
-    search_results: List[dict]
+    search_results: Annotated[List[dict], operator.add]
     messages: Annotated[List[AnyMessage], operator.add]
-
+    search_call_iterations: int
 
 # classify intent schema
 classify_intent_schema = {
@@ -45,6 +45,22 @@ class OutputSchema(BaseModel):
     source_files: Optional[List[str]] = None
     fda_numbers: Optional[List[str]] = None
     barcodes: Optional[List[str]] = None
+    
+    # Provenance: DB products are verified=True; web-fallback products are
+    # verified=False and carry per-field grounding citations from Exa. These are
+    # set deterministically in response_node, not by the LLM.
+    verified: bool = True
+    grounding: Optional[List[Dict[str, Any]]] = None
+
+
+class WebSearchInput(BaseModel):
+    query: str = Field(
+        description=(
+            "The web search query. Usually the product name/brand the user asked "
+            "about. Use only after the database search tools found nothing relevant."
+        )
+    )
+
 
 class FinalAnswerInput(BaseModel):
     response: str = Field(
@@ -56,6 +72,23 @@ class FinalAnswerInput(BaseModel):
             "Product objects selected from search results to show the user. "
             "Maximum 10 unless the user explicitly asks for more. "
             "Empty list if no products were found or the query is irrelevant."
+        ),
+    )
+
+
+class SelectedProducts(BaseModel):
+    """What the final LLM returns: a message plus the ids of the relevant
+    products. The actual product objects are looked up by id in response_node
+    (the LLM never re-emits product fields, avoiding mangling/hallucination)."""
+    response: str = Field(
+        description="Your natural language message to the user. Can't be none."
+    )
+    product_ids: List[str] = Field(
+        default_factory=list,
+        description=(
+            "The canonical_id values of the products relevant to the user's query, "
+            "copied verbatim from the [id: ...] of each candidate. Most relevant "
+            "first, maximum 10. Empty list if nothing is relevant."
         ),
     )
 

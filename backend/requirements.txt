@@ -9,3 +9,8 @@ langchain-core
 langchain-fireworks
 langgraph
 langchain-groq
+supabase
+httpx
+
+valkey
+structlog

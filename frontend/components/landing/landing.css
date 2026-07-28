@@ -1,0 +1,153 @@
+/* Halal One landing page — brand tokens + helper classes.
+   Everything is scoped under .hl-root so it can't leak into the rest of the
+   app (which runs its own Tailwind theme and :root variables). */
+
+@font-face {
+  font-family: "Plus Jakarta Sans HL";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("/fonts/plus-jakarta-sans.woff2") format("woff2");
+}
+
+.hl-root {
+  /* ---- Base brand palette ---- */
+  --green-900: #07351F;
+  --green-800: #0F4B2E;
+  --green-700: #196B24;
+  --green-100: #D9DED8;
+
+  --gold-600: #B7902F;
+  --gold-500: #C9A248;
+  --gold-200: #EBDFC0;
+
+  --cream-50:  #FBFAF6;
+  --cream-100: #F7F4EC;
+
+  --charcoal-900: #222222;
+  --charcoal-600: #657269;
+
+  --white: #FFFFFF;
+  --black: #000000;
+
+  /* ---- Semantic status ---- */
+  --status-success: #196B24;
+  --status-warning: #C9A248;
+  --status-danger:  #B23A2E;
+  --status-info:    #0F4B2E;
+
+  /* ---- Semantic aliases ---- */
+  --bg-app: var(--cream-50);
+  --bg-canvas: var(--white);
+  --surface-card: var(--white);
+  --surface-cream: var(--cream-100);
+  --surface-inverse: var(--green-800);
+  --surface-inverse-deep: var(--green-900);
+  --surface-muted: var(--cream-100);
+
+  --brand-primary: var(--green-800);
+  --brand-primary-hover: var(--green-900);
+  --brand-accent: var(--gold-500);
+  --brand-accent-hover: var(--gold-600);
+
+  --text-heading: var(--green-900);
+  --text-body: var(--charcoal-900);
+  --text-muted: var(--charcoal-600);
+  --text-on-dark: var(--cream-50);
+  --text-on-dark-muted: color-mix(in srgb, var(--cream-50) 68%, transparent);
+  --text-accent: var(--gold-600);
+  --text-link: var(--green-800);
+  --text-link-hover: var(--gold-600);
+
+  --border-subtle: var(--green-100);
+  --border-strong: color-mix(in srgb, var(--green-800) 22%, transparent);
+  --border-on-dark: color-mix(in srgb, var(--cream-50) 20%, transparent);
+
+  --focus-ring: color-mix(in srgb, var(--gold-500) 55%, transparent);
+
+  /* ---- Typography ---- */
+  --font-sans: "Plus Jakarta Sans HL", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ---- Radii ---- */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* ---- Spacing ---- */
+  --space-6: 24px;
+
+  /* ---- Shadows ---- */
+  --shadow-xs: 0 1px 2px color-mix(in srgb, var(--green-900) 8%, transparent);
+  --shadow-sm: 0 2px 8px color-mix(in srgb, var(--green-900) 8%, transparent);
+  --shadow-md: 0 8px 24px color-mix(in srgb, var(--green-900) 12%, transparent);
+  --shadow-lg: 0 18px 48px color-mix(in srgb, var(--green-900) 16%, transparent);
+  --shadow-focus: 0 0 0 3px var(--focus-ring);
+
+  /* ---- Motion ---- */
+  --ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 130ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-body);
+  background: var(--cream-50);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100vh;
+}
+
+.hl-root * { box-sizing: border-box; }
+.hl-root h1, .hl-root h2, .hl-root h3, .hl-root h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  color: var(--text-heading);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.hl-root p { margin: 0; text-wrap: pretty; }
+.hl-root a { color: var(--text-link); text-decoration: none; transition: color var(--dur-fast) var(--ease-standard); }
+.hl-root a:hover { color: var(--text-link-hover); }
+.hl-root ::selection { background: color-mix(in srgb, var(--gold-500) 40%, transparent); }
+
+/* Dark / on-green scope — apply to a green surface subtree */
+.hl-root .hl-on-dark {
+  --text-heading: var(--white);
+  --text-body: var(--cream-50);
+  --text-muted: var(--text-on-dark-muted);
+  --surface-card: color-mix(in srgb, var(--green-900) 60%, var(--white) 6%);
+  --border-subtle: var(--border-on-dark);
+}
+
+/* Scroll-reveal */
+.hl-root [data-reveal] { opacity: 0; transform: translateY(18px); transition: opacity .6s var(--ease-out), transform .6s var(--ease-out); }
+.hl-root [data-reveal].is-in { opacity: 1; transform: none; }
+
+@keyframes hl-scanline { 0% { top: 8%; } 50% { top: 82%; } 100% { top: 8%; } }
+@keyframes hl-pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+.hl-root .hl-navlink { color: var(--text-muted); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; padding: 8px 12px; border-radius: var(--radius-pill); transition: color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard); }
+.hl-root .hl-navlink:hover { color: var(--green-900); background: color-mix(in srgb, var(--green-800) 7%, transparent); }
+.hl-root .hl-chip { transition: transform var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
+.hl-root .hl-chip:hover { transform: translateY(-1px); }
+.hl-root .hl-fcol a { display: block; color: var(--text-on-dark-muted); font-size: 14px; padding: 6px 0; }
+.hl-root .hl-fcol a:hover { color: var(--cream-50); }
+
+@media (max-width: 900px) {
+  .hl-root .hl-hero-grid { grid-template-columns: 1fr !important; }
+  .hl-root .hl-split { grid-template-columns: 1fr !important; }
+  .hl-root .hl-navcenter { display: none !important; }
+}
+@media (max-width: 640px) {
+  .hl-root .hl-nav-actions .hl-hide-sm { display: none !important; }
+}

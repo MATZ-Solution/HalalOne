@@ -15,7 +15,7 @@ def search_collection(query: str, query_by: str, collection_name: str, filter_pa
             'q': query,
             'query_by': query_by,
             "exclude_fields": "embedding",
-            'per_page': 250
+            'limit': 4
         }
         if query_by not in STRING_ARRAY_FIELDS:
             search_parameters['drop_tokens_threshold'] = 0
@@ -31,7 +31,6 @@ def search_collection(query: str, query_by: str, collection_name: str, filter_pa
                     filter_string += f'{k}:=[{quoted}]'
                 elif isinstance(v, str):
                     filter_string += f'{k}:="{v}"'
-        print("Filter string", filter_string)
         if filter_string:
             search_parameters['filter_by'] = filter_string
         hits = TS_CLIENT.collections[collection_name].documents.search(search_parameters)["hits"]
@@ -45,7 +44,7 @@ def search_collection(query: str, query_by: str, collection_name: str, filter_pa
         #     doc = hit['document']
         #     print(f"  [{i}] id={doc['canonical_id']} | name={doc.get('norm_name', '')[:60]}"
         #           f" | status={doc.get('halal_status', '')} | companies={doc.get('companies', [])[:2]}")
-
+        print(f"Number of documents: {len(documents)}")
         return documents
 
     except Exception as e:

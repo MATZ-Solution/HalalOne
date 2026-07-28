@@ -57,7 +57,7 @@ export default function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
             aria-checked={isLight}
             aria-label={isLight ? "Switch to dark mode" : "Switch to light mode"}
             onClick={onToggle}
-            className={`fixed top-6 left-6 z-40 rounded-full border p-1 transition-colors cursor-pointer ${
+            className={`fixed top-6 right-6 z-40 rounded-full border p-1 transition-colors cursor-pointer ${
                 isLight
                     ? "border-black/15 bg-black/5 hover:bg-black/8"
                     : "border-white/15 bg-white/5 hover:bg-white/8"

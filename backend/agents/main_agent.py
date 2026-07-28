@@ -13,7 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from config.typesense_client import TS_CLIENT
 from collection.search.search_collection import search_collection
-from log.logger import logger
+from log.logger import log
 from models.agent_output import OutputSchema
 
 
@@ -84,7 +84,6 @@ def format_results(docs: List[Dict]) -> str:
 
 # ── Typesense search functions ────────────────────────────────────────────────
 def _keyword_search(keyword_args: Optional[Dict], filter_args: Optional[Dict]) -> List[Dict]:
-    logger.info(f"Raw Filters: {filter_args}")
     active_filters = {
         k: v for k, v in (dict(filter_args) if filter_args else {}).items()
         if v
@@ -100,8 +99,6 @@ def _keyword_search(keyword_args: Optional[Dict], filter_args: Optional[Dict]) -
         )
     if not valid and not active_filters:
         return []
-    logger.info(f"Keywords:\n {keyword_args}")
-    logger.info(f"Filters:\n {active_filters}")
     documents = []
     for k, v in valid.items():
         query = " ".join(v) if isinstance(v, list) else v
@@ -123,7 +120,6 @@ def _keyword_search(keyword_args: Optional[Dict], filter_args: Optional[Dict]) -
 def _semantic_search(semantic_query: str, filter_args: Optional[Dict]) -> List[Dict]:
     embedding = embedding_model.embed_query(semantic_query)
     embedding_str = ",".join(map(str, embedding))
-    logger.info(f"Query: {semantic_query}")
     params: Dict[str, Any] = {
         "collection": COLLECTION,
         "q": "*",
@@ -141,7 +137,7 @@ def _semantic_search(semantic_query: str, filter_args: Optional[Dict]) -> List[D
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
     except Exception as e:
-        logger.error(f"Semantic search error: {e}")
+        log.error("main_agent.semantic_search.failed", error=str(e), error_type=type(e).__name__)
         return []
 
 

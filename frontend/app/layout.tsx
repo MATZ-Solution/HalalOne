@@ -8,6 +8,7 @@ import {
   Manrope,
   DM_Sans,
   Raleway,
+  Plus_Jakarta_Sans,
 } from "next/font/google";
 import "./globals.css";
 
@@ -52,6 +53,11 @@ const raleway = Raleway({
   subsets: ["latin"],
 });
 
+const plusJakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-plus-jakarta-sans",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
   title: "Halalify",
   description: "Check your product's halal status",
@@ -65,7 +71,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${roboto.variable} ${inter.variable} ${spaceGrotesk.variable} ${manrope.variable} ${dmSans.variable} ${raleway.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${roboto.variable} ${inter.variable} ${spaceGrotesk.variable} ${manrope.variable} ${dmSans.variable} ${raleway.variable} ${plusJakartaSans.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

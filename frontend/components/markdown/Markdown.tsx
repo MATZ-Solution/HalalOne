@@ -47,7 +47,7 @@ const Markdown = ({ textContent, theme = "dark" }: MarkdownProps) => {
                     <h4 className={`text-lg font-semibold ${text}`} {...props} />
                 ),
                 p: ({ node, ...props }) => (
-                    <p className={`leading-7 my-2 wrap-break-word ${muted}`} {...props} />
+                    <p className={`leading-7 my-2 wrap-break-word ${text}`} {...props} />
                 ),
                 strong: ({ node, ...props }) => (
                     <strong className={`font-bold ${text}`} {...props} />

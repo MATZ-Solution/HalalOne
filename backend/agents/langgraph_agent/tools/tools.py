@@ -1,14 +1,18 @@
-from log.logger import logger
+import uuid
+from log.logger import log
+from langsmith import traceable
 from langchain.tools import tool
+from .web_search import stream_web_search
 from typing import Dict, Optional, List, Any
 from config.typesense_client import TS_CLIENT
+from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
 from collection.search.search_collection import search_collection
 from ..utils.utils import KEYWORD_FIELDS, COLLECTION, build_filter_string
-from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput
-
+from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput, WebSearchInput
 
 @tool(args_schema=KeywordFilterInput)
+# @traceable(run_type="tool")
 def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """
@@ -16,7 +20,6 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
             "and typical uses, with optional exact filters. Use when specific product names, brand names, "
             "or keyword terms are mentioned. Also use when only exact filters are provided (keyword_args=null).
     """
-    logger.info(f"Raw Filters: {filter_args}")
     active_filters = {
         k: v for k, v in (dict(filter_args) if filter_args else {}).items()
         if v
@@ -32,8 +35,6 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
         )
     if not valid and not active_filters:
         return []
-    logger.info(f"Keywords:\n {keyword_args}")
-    logger.info(f"Filters:\n {active_filters}")
     documents = []
     for k, v in valid.items():
         query = " ".join(v) if isinstance(v, list) else v
@@ -51,8 +52,8 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
 
     return documents
 
-
 @tool(args_schema = SemanticFilterInput)
+# @traceable(run_type="tool")
 def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """
@@ -61,7 +62,6 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
     """
     embedding = embedding_model.embed_query(semantic_query)
     embedding_str = ",".join(map(str, embedding))
-    logger.info(f"Query: {semantic_query}")
     params: Dict[str, Any] = {
         "collection": COLLECTION,
         "q": "*",
@@ -79,5 +79,52 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
     except Exception as e:
-        logger.error(f"Semantic search error: {e}")
+        log.error("tool.semantic_search.failed", error=str(e), error_type=type(e).__name__)
         return []
+
+
+@tool(args_schema=WebSearchInput)
+# @traceable(run_type="tool")
+def WebSearch(query: str) -> List[Dict]:
+    """Last-resort web search for a halal product, used ONLY after the database
+    tools (KeywordFilterSearch/SemanticFilterSearch) return nothing or nothing
+    relevant. Streams the sources being searched to the client, then returns the
+    product Exa synthesised. The returned product is UNVERIFIED (not from the
+    certified database) and carries per-field grounding citations."""
+    # Stream writer may be absent when the graph isn't run in streaming mode.
+    try:
+        writer = get_stream_writer()
+    except Exception:
+        writer = None
+
+    product = None
+    grounding: List[Dict] = []
+    try:
+        for event in stream_web_search(query):
+            etype = event.get("type")
+            if etype == "results" and writer:
+                # Emit each source as a live loading message.
+                for r in event.get("results", []):
+                    writer({
+                        "type": "web_source",
+                        "url": r.get("url"),
+                        "title": r.get("title"),
+                        "favicon": r.get("favicon"),
+                        "highlights": r.get("highlights") or [],
+                    })
+            elif etype == "done":
+                output = event.get("output") or {}
+                product = output.get("content")
+                grounding = output.get("grounding") or []
+    except Exception as e:
+        log.error("tool.web_search.failed", error=str(e), error_type=type(e).__name__)
+        return []
+
+    if not product or not product.get("norm_name"):
+        return []
+    # Give the web product a stable id (like DB products) so response_node can
+    # select it by id. The `halal_` prefix marks it as web-sourced.
+    product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
+    product["verified"] = False
+    product["grounding"] = grounding
+    return [product]

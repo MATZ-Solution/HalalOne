@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { createClient } from "@/utils/supabase/client"
 
 type Theme = "light" | "dark"
 
@@ -195,26 +196,31 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
     useEffect(() => {
         const controller = new AbortController()
 
-        fetch(`${getBackendHttpUrl()}/extract-image`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ base64: image.base64, mime_type: image.mimeType }),
-            signal: controller.signal,
-        })
-            .then(r => {
+        ;(async () => {
+            const supabase = createClient()
+            const { data: { session } } = await supabase.auth.getSession()
+            const token = session?.access_token ?? ""
+            try {
+                const r = await fetch(`${getBackendHttpUrl()}/extract-image`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ base64: image.base64, mime_type: image.mimeType }),
+                    signal: controller.signal,
+                })
                 if (!r.ok) throw new Error(`HTTP ${r.status}`)
-                return r.json() as Promise<{ fields: Record<string, unknown> }>
-            })
-            .then(data => {
+                const data = await r.json() as { fields: Record<string, unknown> }
                 setFields(buildInitialFields(data.fields ?? {}))
                 setLoading(false)
-            })
-            .catch(err => {
+            } catch (err) {
                 if ((err as Error).name === "AbortError") return
                 setExtractionError("Could not extract information from this image. You can fill in the fields manually.")
                 setFields(buildInitialFields({}))
                 setLoading(false)
-            })
+            }
+        })()
 
         return () => controller.abort()
     }, [image.base64, image.mimeType])
