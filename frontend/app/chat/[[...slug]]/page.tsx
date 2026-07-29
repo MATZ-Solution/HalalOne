@@ -740,10 +740,10 @@ export default function Page() {
         </div>
     )
 
-    if (!authChecked) return <div className="w-[99vw] h-screen" />
+    if (!authChecked) return <div className="w-full min-h-dvh h-dvh" />
 
     return (
-        <div className="w-[99vw] h-screen flex flex-col bg-gray-100/10 relative">
+        <div className="w-full min-h-dvh h-dvh flex flex-col bg-gray-100/10 relative overflow-x-hidden">
             {/* Persistent connection-lost banner — stays until the socket restores. */}
             <AnimatePresence>
                 {showDisconnected && (
