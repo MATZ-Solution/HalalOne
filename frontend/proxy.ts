@@ -48,19 +48,28 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const isAuthPage = path.startsWith('/login') || path.startsWith('/signup')
+  // Only the chat app requires authentication. The landing page and marketing
+  // routes are public so visitors can browse before ever signing in.
+  const isProtected = path.startsWith('/chat')
 
-  // Unauthenticated user trying to access a protected page → send to login.
-  if (!user && !isAuthPage) {
+  // Unauthenticated user opening a protected page → send to login, remembering
+  // where they were headed so we can return them there after they sign in.
+  if (!user && isProtected) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
+    loginUrl.search = ''
+    loginUrl.searchParams.set('next', path)
     return NextResponse.redirect(loginUrl)
   }
 
-  // Authenticated user visiting login/signup → send to app root.
+  // Authenticated user visiting login/signup → skip the form. Honour a ?next=
+  // (e.g. the "Get started" flow lands them on /chat); otherwise the landing.
   if (user && isAuthPage) {
-    const homeUrl = request.nextUrl.clone()
-    homeUrl.pathname = '/'
-    return NextResponse.redirect(homeUrl)
+    const dest = request.nextUrl.clone()
+    const next = request.nextUrl.searchParams.get('next')
+    dest.pathname = next && next.startsWith('/') && !next.startsWith('//') ? next : '/'
+    dest.search = ''
+    return NextResponse.redirect(dest)
   }
 
   return supabaseResponse

@@ -5,9 +5,14 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/utils/supabase/client'
 import GoogleButton from '@/components/auth/GoogleButton'
+import BrandPanel from '@/components/auth/BrandPanel'
 
-// Unsplash photo: colorful spice market (no people)
-const BG_IMAGE = 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=1400&q=80&auto=format&fit=crop'
+// Only same-origin relative paths are honoured as a post-login destination,
+// so a crafted ?next= can't turn this into an open redirect.
+function safePath(next: string | null): string {
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/'
+  return next
+}
 
 // Suspense wrapper required because useSearchParams() opts out of static rendering.
 export default function LoginPage() {
@@ -21,12 +26,19 @@ export default function LoginPage() {
 function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
+  const [remember, setRemember] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
+
+  // ?next=/chat when arriving via the landing "Get started" CTA; absent for a
+  // plain sign-in, which then returns to the landing page.
+  const next = safePath(searchParams?.get('next') ?? null)
+  const signupHref = next === '/' ? '/signup' : `/signup?next=${encodeURIComponent(next)}`
 
   // Show a message if redirected here after a failed OAuth callback.
   useEffect(() => {
@@ -47,101 +59,118 @@ function LoginForm() {
       setLoading(false)
     } else {
       // refresh() re-runs server components so the proxy sees the new session.
-      router.push('/')
+      router.push(next)
       router.refresh()
     }
   }
 
+  const inputCls =
+    'w-full px-3.5 py-3 rounded-xl border border-[#D9DED8] bg-white text-sm text-[#07351F] placeholder:text-[#657269] outline-none focus:border-[#196B24] focus:shadow-[0_0_0_3px_rgba(25,107,36,0.16)] transition'
+
   return (
-    <div className="min-h-screen flex bg-[#0c0c0c]">
+    <div className="min-h-dvh bg-[#FBFAF6] text-[#222] plus-jakarta-sans-400 lg:grid lg:grid-cols-[1.05fr_1fr]">
+      <BrandPanel variant="login" />
 
-      {/* ── Left: form panel ── */}
-      <div className="flex-1 flex flex-col justify-center items-center px-8 py-12">
-        <div className="w-full max-w-[360px]">
+      {/* ── Form panel ── */}
+      <main className="flex flex-col min-h-dvh px-6 sm:px-10 py-8">
+        {/* top-right switch to signup */}
+        <div className="flex justify-end items-center gap-2.5 text-[13.5px] text-[#657269]">
+          New to HalalOne?
+          <Link href={signupHref} className="plus-jakarta-sans-700 px-4 py-2 rounded-full border border-[#D9DED8] text-[#0F4B2E] hover:bg-[#F7F4EC] transition-colors">
+            Create account
+          </Link>
+        </div>
 
-          {/* Brand */}
-          <div className="mb-10">
-            <span className="text-white font-semibold text-xl tracking-tight manrope-600">
-              Halalify
-            </span>
+        <div className="m-auto w-full max-w-[400px] py-6">
+          <h2 className="text-[28px] plus-jakarta-sans-800 tracking-tight text-[#07351F]">Sign in to your account</h2>
+          <p className="text-sm text-[#657269] mt-2 leading-relaxed">Enter your credentials to continue to the platform.</p>
+
+          {/* SSO */}
+          <div className="mt-6">
+            <GoogleButton next={next} />
           </div>
 
-          <h1 className="text-white text-2xl manrope-600 mb-1">Welcome back</h1>
-          <p className="text-white/40 text-sm manrope-400 mb-8">Sign in to continue</p>
+          <div className="flex items-center gap-3.5 my-5">
+            <div className="flex-1 h-px bg-[#D9DED8]" />
+            <span className="text-[11.5px] plus-jakarta-sans-700 tracking-wider uppercase text-[#657269]">or</span>
+            <div className="flex-1 h-px bg-[#D9DED8]" />
+          </div>
 
-          <form onSubmit={handleLogin} className="space-y-3">
-            <input
-              type="email"
-              placeholder="Email address"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 outline-none focus:border-white/30 transition-colors"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/25 outline-none focus:border-white/30 transition-colors"
-            />
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <label className="block">
+              <span className="block text-[12.5px] plus-jakarta-sans-700 text-[#07351F] mb-1.5">Email address</span>
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                className={inputCls}
+              />
+            </label>
 
-            {error && (
-              <p className="text-red-400 text-xs pt-1">{error}</p>
-            )}
+            <label className="block">
+              <div className="flex justify-between items-baseline mb-1.5">
+                <span className="text-[12.5px] plus-jakarta-sans-700 text-[#07351F]">Password</span>
+                <Link href="#" className="text-xs plus-jakarta-sans-700 text-[#0F4B2E] hover:text-[#B7902F] transition-colors">Forgot password?</Link>
+              </div>
+              <div className="relative">
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className={inputCls.replace('px-3.5', 'pl-3.5 pr-11')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => !s)}
+                  aria-label="Toggle password visibility"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 text-xs plus-jakarta-sans-700 text-[#657269] hover:text-[#0F4B2E]"
+                >
+                  {showPw ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </label>
+
+            <label className="flex items-center gap-2.5 cursor-pointer text-[13px] text-[#657269] select-none">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="w-4 h-4 accent-[#0F4B2E] cursor-pointer"
+              />
+              Keep me signed in for 30 days
+            </label>
+
+            {error && <p className="text-[#B23A2E] text-xs">{error}</p>}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-white text-black rounded-xl px-4 py-3 text-sm manrope-500 hover:bg-white/90 active:bg-white/80 transition-colors disabled:opacity-50 mt-1"
+              className="mt-1 w-full py-3.5 rounded-xl bg-[#0F4B2E] text-white plus-jakarta-sans-800 text-[15px] tracking-tight shadow-[0_10px_28px_rgba(7,53,31,0.12)] hover:bg-[#07351F] hover:-translate-y-px active:translate-y-0 transition disabled:opacity-60 disabled:hover:translate-y-0"
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-white/8" />
-            <span className="text-white/25 text-xs">or</span>
-            <div className="flex-1 h-px bg-white/8" />
-          </div>
-
-          <GoogleButton />
-
-          <p className="text-center text-white/35 text-sm mt-8">
-            {"Don't have an account? "}
-            <Link href="/signup" className="text-white/70 hover:text-white transition-colors underline underline-offset-2">
-              Sign up
-            </Link>
+          <p className="text-[12.5px] text-[#657269] text-center mt-5 leading-relaxed">
+            By continuing you agree to HalalOne&apos;s{' '}
+            <Link href="#" className="plus-jakarta-sans-700 text-[#0F4B2E] hover:text-[#B7902F]">Terms</Link> and{' '}
+            <Link href="#" className="plus-jakarta-sans-700 text-[#0F4B2E] hover:text-[#B7902F]">Privacy Policy</Link>.
           </p>
         </div>
-      </div>
 
-      {/* ── Right: decorative image (hidden on small screens) ── */}
-      <div className="hidden lg:block w-[52%] relative overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={BG_IMAGE}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        {/* Gradient overlay blending into the form panel */}
-        <div className="absolute inset-0 bg-linear-to-r from-[#0c0c0c] via-transparent to-transparent" />
-        <div className="absolute inset-0 bg-black/25" />
-
-        {/* Quote overlay */}
-        <div className="absolute bottom-12 left-10 right-10">
-          <p className="text-white/80 text-lg manrope-500 leading-snug">
-            Know what's in your food.<br />
-            <span className="text-white/50 text-sm manrope-400">Search 200,000+ halal-certified products.</span>
-          </p>
+        <div className="flex items-center gap-2 text-xs text-[#657269] justify-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5l-8-3Z" stroke="#196B24" strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+          Protected by enterprise-grade encryption
         </div>
-      </div>
-
+      </main>
     </div>
   )
 }

@@ -1,16 +1,25 @@
-import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 import Landing from '@/components/landing/Landing'
 
-// The landing page. Signed-in users land here after login; its CTAs lead to
-// the chat/dashboard at /chat. Unauthenticated visitors go to /login.
+// The landing page is the public entry point for everyone. Its "Get started"
+// CTA sends visitors to /login (then on to /chat); signed-in visitors see their
+// profile in the nav and go straight to the app. /chat is the only gated route.
 export default async function App() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  const profile = user
+    ? {
+        name:
+          (user.user_metadata?.full_name as string) ||
+          (user.email ? user.email.split('@')[0] : 'User'),
+        email: user.email ?? '',
+        avatarUrl:
+          (user.user_metadata?.avatar_url as string) ||
+          (user.user_metadata?.picture as string) ||
+          '',
+      }
+    : null
 
-  return <Landing />
+  return <Landing profile={profile} />
 }

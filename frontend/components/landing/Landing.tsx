@@ -42,9 +42,18 @@ const sectionInner = { maxWidth: 1200, margin: "0 auto", padding: "96px 32px" }
 
 type BadgeVariant = "verified" | "warning" | "danger"
 
-export default function Landing() {
+// Passed from the server page: present when the visitor is signed in, so the
+// nav can show their profile and the CTAs can go straight to the app.
+type Profile = { name: string; email: string; avatarUrl: string }
+
+export default function Landing({ profile = null }: { profile?: Profile | null }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
+
+  // "Get started" goes straight to the app when already signed in; otherwise to
+  // login, carrying ?next=/chat so the user lands on the chat after signing in.
+  const START = profile ? APP : "/login?next=/chat"
+  const firstName = profile?.name ? profile.name.split(" ")[0] : ""
 
   // Scroll-reveal — mirrors the original IntersectionObserver behaviour.
   useEffect(() => {
@@ -92,8 +101,24 @@ export default function Landing() {
                 <Icon name="globe" size={16} color="var(--charcoal-600)" />
                 EN
               </button>
-              <a className="hl-navlink hl-hide-sm" href={APP} style={{ color: "var(--green-900)" }}>Chat</a>
-              <Button size="sm" href={APP}>Open dashboard</Button>
+              {profile ? (
+                <>
+                  <Button size="sm" href={APP}>Open dashboard</Button>
+                  <Link href={APP} aria-label="Open the app" style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
+                    {profile.avatarUrl ? (
+                      <span style={{ width: 34, height: 34, borderRadius: "50%", backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: "cover", backgroundPosition: "center", border: "1px solid var(--border-subtle)", flex: "0 0 auto" }} />
+                    ) : (
+                      <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--green-800)", color: "var(--white)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, flex: "0 0 auto" }}>{(profile.name || "U").charAt(0).toUpperCase()}</span>
+                    )}
+                    <span className="hl-hide-sm" style={{ fontSize: 14, fontWeight: 700, color: "var(--green-900)", letterSpacing: "-0.01em" }}>{firstName}</span>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link className="hl-navlink hl-hide-sm" href="/login" style={{ color: "var(--green-900)" }}>Sign in</Link>
+                  <Button size="sm" href={START}>Get started</Button>
+                </>
+              )}
             </div>
           </nav>
         </header>
@@ -114,7 +139,7 @@ export default function Landing() {
                 Verify products, decode ingredients, and search the global Halal repository — with AI that explains every answer and cites its sources. One platform. Every halal answer.
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 30 }}>
-                <Button variant="gold" size="lg" href={APP}>Explore the platform</Button>
+                <Button variant="gold" size="lg" href={START}>Get started</Button>
                 <Button variant="secondary" size="lg" href="#ai" style={{ color: "var(--cream-50)", borderColor: "var(--border-on-dark)" }}>See the AI in action</Button>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 32, marginTop: 44, paddingTop: 30, borderTop: "1px solid var(--border-on-dark)" }}>
