@@ -9,6 +9,9 @@ langchain-core
 langchain-fireworks
 langgraph
 langchain-groq
+langchain-cerebras
+langsmith
+agentevals
 supabase
 httpx
 
