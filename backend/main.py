@@ -447,10 +447,12 @@ async def extract_image_endpoint(req: ExtractImageRequest, authorization: str = 
             raise HTTPException(status_code=400, detail="Invalid image data")
         for _ in range(3):
             try:
+                print("invoking llm with image")
                 result = await invoke_llm_with_image(image_url)
                 if "error" not in result:
                     return {"fields": result}
             except Exception as e:
+                print("Some error occured while invoking image llm", e)
                 log.error("http.extract_image.failed", error=str(e), error_type=type(e).__name__)
         raise HTTPException(status_code=422, detail="Failed to extract image information")
 
