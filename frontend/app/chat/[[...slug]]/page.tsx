@@ -8,7 +8,6 @@ import ImageIcon from "../../../icons/image_colored_icon.svg"
 import StockPotIcon from "../../../icons/stockpot_icon.svg"
 import CoffeeIcon from "../../../icons/coffee_icon.svg"
 import CookieIcon from "../../../icons/cookie_icon.svg"
-import HalalOneIcon from "../../../icons/halal_one_icon.svg"
 import ArrowUpIcon from "../../../icons/arrow_up_icon.svg"
 import RightPanelCloseIcon from "../../../icons/right_panel_close_icon.svg"
 import RightPanelOpenIcon from "../../../icons/right_panel_open_icon.svg"
@@ -760,7 +759,7 @@ export default function Page() {
                 )}
             </AnimatePresence>
             <motion.div initial={{ x: "-100%" }} animate={{ x: isChatSessionOpen ? "0%" : "-100%" }} transition={{ duration: 0.4, ease: "linear" }} id="chat-history-cupboard" className="h-full absolute top-0 z-10">
-                <div className="w-80 h-full bg-linear-to-b/hsl from-[#fbfffe] to-[#f6fffe] border-r border-teal-800/5 flex flex-col gap-y-2 p-4">
+                <div className="w-70 md:w-80 h-full bg-linear-to-b/hsl from-[#fbfffe] to-[#f6fffe] border-r border-teal-800/5 flex flex-col gap-y-2 p-4">
                     <div id="sidepanel-control" className="w-full flex items-center">
                         <div id="brand-logo" className="text-teal-800 flex">
                             <Image src="/images/halal_one_logo_pic.png" alt="halal_one_logo" width={120} height={20} />
