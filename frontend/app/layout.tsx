@@ -58,10 +58,27 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
+
 export const metadata: Metadata = {
-  title: "Halalify",
-  description: "Check your product's halal status",
-};
+  metadataBase: new URL(SITE_URL), // makes image paths absolute
+  title: 'HalalOne — Every halal answer, one platform',
+  description: "Verify products, decode ingredients, and search the global halal repository with AI that cites its sources.",
+  openGraph: {
+    type: 'website',
+    url: SITE_URL,
+    siteName: 'HalalOne',
+    title: 'HalalOne — Every halal answer, one platform',
+    description: "Verify products, decode ingredients, and search the global halal repository with AI that cites its sources.",
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'HalalOne' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'HalalOne — Every halal answer, one platform',
+    description: "Verify products, decode ingredients, and search the global halal repository.",
+    images: ['/og.png'],
+  },
+}
 
 export default function RootLayout({
   children,
