@@ -1,17 +1,32 @@
-name: Deploy to Hostinger VPS
+name: Deploy to VPS
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
 
-      - name: Deploy to Hostinger
-        uses: hostinger/deploy-action@v1
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          api-key: ${{ secrets.HOSTINGER_API_KEY }}
-          virtual-machine: ${{ vars.HOSTINGER_VM_ID }}
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script: |
+            cd /var/www/Halalify-TypeSense
+            git pull origin main
+
+            cd backend
+            source venv/bin/activate
+            pip install -r requirements.txt
+            deactivate
+            systemctl restart halalone-backend.service
+
+            cd ../frontend
+            npm install
+            npm run build
+            pm2 restart halalone-frontend || pm2 start npm --name halalone-frontend -- start
+            pm2 save
