@@ -15,7 +15,7 @@ BATCH_SIZE = 50
 INSERT_BATCH_SIZE = 100
 MAX_RETRIES = 3
 RETRY_DELAY = 2
-START_BATCH = 518  # Continue from this batch (1-indexed)
+START_BATCH = 161  # Continue from this batch (1-indexed)
 
 # ==================== INITIALIZATION ====================
 embedding_model = FireworksEmbeddings(
@@ -227,7 +227,7 @@ load_previous_failures()
 
 # Load data
 logger.info("Loading data file...")
-with open("data/canonical_products.json", "r", encoding="utf-8") as f:
+with open(r'C:\Users\anas_\Downloads\canonical_products.json', "r", encoding="utf-8") as f:
     data = json.load(f)
 
 if not data:

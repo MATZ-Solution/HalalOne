@@ -70,13 +70,13 @@ export const metadata: Metadata = {
     siteName: 'HalalOne',
     title: 'HalalOne — Every halal answer, one platform',
     description: "Verify products, decode ingredients, and search the global halal repository with AI that cites its sources.",
-    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'HalalOne' }],
+    images: [{ url: '/og-rounded.png', width: 1200, height: 630, alt: 'HalalOne' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'HalalOne — Every halal answer, one platform',
     description: "Verify products, decode ingredients, and search the global halal repository.",
-    images: ['/og.png'],
+    images: ['/og-rounded.png'],
   },
 }
 
