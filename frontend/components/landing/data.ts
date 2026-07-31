@@ -98,8 +98,8 @@ export const trustPillars = [
 export const socials = ["linkedin", "twitter", "youtube", "globe"]
 
 export const footerCols = [
-  { title: "Platform", links: ["AI Assistant", "Repository", "Product Intelligence", "OCR Scanner", "Mobile app"] },
-  { title: "Resources", links: ["Documentation", "API", "Standards", "Certification lookup"] },
+  { title: "Platform", links: ["AI Assistant", "Repository", "Business Directory", "OCR Scanner", "Mobile app"] },
+  { title: "Resources", links: ["Standards", "Certification lookup", "News & alerts", "API"] },
   { title: "Research", links: ["Datasets", "Knowledge graph", "Market intelligence", "Reports"] },
   { title: "Institution", links: ["About ICCD", "Partners", "Contact", "Careers"] },
 ]

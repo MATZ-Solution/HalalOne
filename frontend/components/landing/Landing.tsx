@@ -23,17 +23,24 @@ import "./landing.css"
 // Where every primary call-to-action leads: the chat/dashboard.
 const APP = "/chat"
 
-// The two directory routes.
+// The directory / regulatory-intelligence routes.
 const CERT_DIR = "/directory/certification-authority-directory"
 const REG_INTEL = "/directory/regulatory-intelligence"
+const BIZ_DIR = "/directory/business-directory"
+const NEWS = "/directory/news-alerts"
+const STANDARDS = "/directory/standards-library"
+const TRADE = "/directory/trade-intelligence"
 
 // Real destinations for footer link labels; anything unmapped stays a "#" stub.
 const FOOTER_ROUTES: Record<string, string> = {
   "AI Assistant": APP,
   "Repository": CERT_DIR,
   "OCR Scanner": APP,
-  "Standards": REG_INTEL,
+  "Standards": STANDARDS,
   "Certification lookup": CERT_DIR,
+  "Business Directory": BIZ_DIR,
+  "News & alerts": NEWS,
+  "Market intelligence": TRADE,
 }
 
 const overline = { fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" as const, color: "var(--gold-600)" }
@@ -88,9 +95,11 @@ export default function Landing({ profile = null }: { profile?: Profile | null }
               <a className="hl-navlink" href="#ai">AI Assistant</a>
               <a className="hl-navlink" href="#repository">Repository</a>
               <Link className="hl-navlink" href={CERT_DIR}>Directory</Link>
+              <Link className="hl-navlink" href={BIZ_DIR}>Business</Link>
               <Link className="hl-navlink" href={REG_INTEL}>Regulatory</Link>
-              <a className="hl-navlink" href="#scanner">Scanner</a>
-              <a className="hl-navlink" href="#mobile">Mobile</a>
+              <Link className="hl-navlink" href={STANDARDS}>Standards</Link>
+              <Link className="hl-navlink" href={TRADE}>Trade</Link>
+              <Link className="hl-navlink" href={NEWS}>News</Link>
               <a className="hl-navlink" href="#trust">Trust</a>
             </div>
             <div className="hl-nav-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
