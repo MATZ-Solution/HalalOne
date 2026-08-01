@@ -22,11 +22,13 @@ def classify_intent(state: SearchAgentState) -> Command[Literal["search_node", "
     structured_llm = extracter_llm.with_structured_output(classify_intent_schema, method = 'json_mode')
     messages = [SystemMessage(CLASSIFICATION_PROMPT)] + state["messages"]
     result = structured_llm.invoke(messages)
-    goto = "search_node"
-    if result.get("classification") == "search":
-        goto = "search_node"
-    elif result.get("classification") == "direct":
-        goto = "response_node"
+
+    # `classification` is the key CLASSIFICATION_PROMPT instructs the model to emit, and
+    # method='json_mode' parses the reply verbatim (it does not validate or remap against
+    # classify_intent_schema), so this is the key that actually arrives. Anything else —
+    # a malformed reply, a missing key — falls through to a full search, which is the safe
+    # default: a needless search costs latency, a skipped one costs the answer.
+    goto = "response_node" if (result or {}).get("classification") == "direct" else "search_node"
 
     return Command(
         goto = goto
@@ -66,9 +68,11 @@ def should_continue(state: SearchAgentState) -> Literal["tool_node", "response_n
     has_tool_calls = bool(getattr(last_message, "tool_calls", None))
     iterations = state.get("search_call_iterations", 0)
 
-    # Cap the search loop here. Past the budget we go to response_node even if the
-    # model asked for more tools (its last tool calls are simply not executed).
-    if has_tool_calls and iterations < MAX_SEARCH_ITERATIONS:
+    # Cap the search loop here. search_node increments the counter *before* this runs,
+    # so on the final permitted round `iterations == MAX_SEARCH_ITERATIONS`; the
+    # comparison must include it, otherwise that round's tool calls are generated and
+    # then discarded, and response_node inherits an unanswered tool-call message.
+    if has_tool_calls and iterations <= MAX_SEARCH_ITERATIONS:
         return "tool_node"
     return "response_node"
 

@@ -22,7 +22,8 @@ async def get_valkey() -> "valkey.Valkey":
             if _client is None:
                 # `or` (not getenv's default): VALKEY_URL is present-but-empty in
                 # local .env files, and from_url("") raises.
-                url = os.getenv("VALKEY_URL") or "redis://localhost:6379/0"
+                raw = os.getenv("VALKEY_URL") or "redis://localhost:6379/0"
+                url = raw.replace("redis://", "valkey://", 1).replace("rediss://", "valkeys://", 1)
                 client = valkey.Valkey.from_url(url, decode_responses=True)
                 await client.ping()
                 _client = client

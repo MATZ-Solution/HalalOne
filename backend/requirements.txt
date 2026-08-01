@@ -17,3 +17,6 @@ httpx
 
 valkey
 structlog
+
+pytest
+pytest-asyncio
