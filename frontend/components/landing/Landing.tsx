@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
+
+import { createClient } from "@/utils/supabase/client"
 
 import Button from "@/components/halalone/Button"
 import Card from "@/components/halalone/Card"
@@ -62,6 +64,27 @@ export default function Landing({ profile = null }: { profile?: Profile | null }
   const START = profile ? APP : "/login?next=/chat"
   const firstName = profile?.name ? profile.name.split(" ")[0] : ""
 
+  // Profile dropdown (sign in → the avatar opens a menu instead of navigating).
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false) }
+    document.addEventListener("mousedown", onDown)
+    document.addEventListener("keydown", onKey)
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey) }
+  }, [menuOpen])
+
+  const handleSignOut = async () => {
+    setMenuOpen(false)
+    await createClient().auth.signOut()
+    router.refresh()   // re-runs the server page → nav flips back to signed-out
+  }
+
   // Scroll-reveal — mirrors the original IntersectionObserver behaviour.
   useEffect(() => {
     const root = rootRef.current
@@ -106,14 +129,41 @@ export default function Landing({ profile = null }: { profile?: Profile | null }
               {profile ? (
                 <>
                   <Button size="sm" href={APP}>Start Chat</Button>
-                  <Link href={APP} aria-label="Open the app" style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
-                    {profile.avatarUrl ? (
-                      <span style={{ width: 34, height: 34, borderRadius: "50%", backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: "cover", backgroundPosition: "center", border: "1px solid var(--border-subtle)", flex: "0 0 auto" }} />
-                    ) : (
-                      <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--green-800)", color: "var(--white)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, flex: "0 0 auto" }}>{(profile.name || "U").charAt(0).toUpperCase()}</span>
+                  <div ref={menuRef} style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      onClick={() => setMenuOpen((o) => !o)}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      aria-label="Account menu"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 9, background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                    >
+                      {profile.avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={profile.avatarUrl} alt="" referrerPolicy="no-referrer" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: "1px solid var(--border-subtle)", flex: "0 0 auto" }} />
+                      ) : (
+                        <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--green-800)", color: "var(--white)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, flex: "0 0 auto" }}>{(profile.name || "U").charAt(0).toUpperCase()}</span>
+                      )}
+                      <span className="hl-hide-sm" style={{ fontSize: 14, fontWeight: 700, color: "var(--green-900)", letterSpacing: "-0.01em" }}>{firstName}</span>
+                      <svg className="hl-hide-sm" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ transition: "transform .15s ease", transform: menuOpen ? "rotate(180deg)" : "none" }}><path d="M6 9l6 6 6-6" stroke="var(--charcoal-600)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </button>
+
+                    {menuOpen && (
+                      <div role="menu" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, minWidth: 220, background: "var(--white)", border: "1px solid var(--border-subtle)", borderRadius: 12, boxShadow: "var(--shadow-md)", overflow: "hidden", zIndex: 60 }}>
+                        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border-subtle)" }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--green-900)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile.name || "User"}</div>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile.email}</div>
+                        </div>
+                        <Link href={APP} role="menuitem" onClick={() => setMenuOpen(false)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", fontSize: 14, fontWeight: 600, color: "var(--green-900)" }}>
+                          <Icon name="sparkles" size={16} color="var(--green-800)" />Open chat
+                        </Link>
+                        <button type="button" role="menuitem" onClick={handleSignOut} style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", fontSize: 14, fontWeight: 600, color: "var(--status-danger)", background: "transparent", border: "none", borderTop: "1px solid var(--border-subtle)", cursor: "pointer", textAlign: "left" }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          Sign out
+                        </button>
+                      </div>
                     )}
-                    <span className="hl-hide-sm" style={{ fontSize: 14, fontWeight: 700, color: "var(--green-900)", letterSpacing: "-0.01em" }}>{firstName}</span>
-                  </Link>
+                  </div>
                 </>
               ) : (
                 <>
