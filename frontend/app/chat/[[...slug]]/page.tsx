@@ -1,35 +1,23 @@
 "use client"
-import { useRef, useState, useEffect, useLayoutEffect, useReducer, type ChangeEvent, type ClipboardEvent } from "react"
+import { useRef, useState, useEffect, useLayoutEffect, useReducer, type ChangeEvent, type ClipboardEvent, type CSSProperties } from "react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 
-import ImageIcon from "../../../icons/image_colored_icon.svg"
-import StockPotIcon from "../../../icons/stockpot_icon.svg"
 import CoffeeIcon from "../../../icons/coffee_icon.svg"
 import CookieIcon from "../../../icons/cookie_icon.svg"
-import ArrowUpIcon from "../../../icons/arrow_up_icon.svg"
-import RightPanelCloseIcon from "../../../icons/right_panel_close_icon.svg"
-import RightPanelOpenIcon from "../../../icons/right_panel_open_icon.svg"
-import InkPenIcon from "../../../icons/ink_pen_icon.svg"
-import SearchIcon from "../../../icons/search_icon.svg"
-import LogoutIcon from "../../../icons/logout_icon.svg"
-import TrashIcon from "../../../icons/trash_icon.svg"
+import StockPotIcon from "../../../icons/stockpot_icon.svg"
 
 import { createClient } from "@/utils/supabase/client"
 import useWebsocket from "@/hooks/useWebsocket"
-import Image from "next/image"
 import type { Product } from "@/types/product"
-import { statusBadge, statusAccent, statusDot } from "@/utils/halalStatus"
 import ProductDetailModal from "@/components/product/ProductDetailModal"
 import Markdown from "@/components/markdown/Markdown"
 import ImageExtractionDialog from "@/components/ImageExtractionDialog"
 import SearchResultsDialog from "@/components/SearchResultsDialog"
 import CompactionDialog from "@/components/CompactionDialog"
 
-const fontThemes = { "light-tailwind": "text-black/50", "dark-tailwind": "text-black/80", "light-hex": "#00000080", "dark-hex": "#000000CC" }
-
-// ---- backend message / streaming types (ported from HalalifyChat) ----
+// ---- backend message / streaming types (unchanged from the original) ----
 type AttachedImage = { previewUrl: string; base64: string; mimeType: string }
 
 type Message = {
@@ -38,7 +26,6 @@ type Message = {
     content: string
     products?: Product[]
     imageDataUrl?: string
-    // Short-lived signed CDN URL for a stored image, returned on session reload.
     imageUrl?: string
 }
 
@@ -47,7 +34,6 @@ type ReasoningContent = { node: string; reasoning: string }
 type WebSource = { url: string; title?: string; favicon?: string; highlights?: string[] }
 type Session = { session_id: string; title: string; description: string; created_at: string }
 
-// One streamed chunk from the agent (the shapes we read off it).
 type StreamChunk = {
     type: string
     session_id?: string
@@ -64,14 +50,9 @@ type StreamChunk = {
     response?: string
     documents?: Product[]
     disclaimer?: string | null
-    // DB id of the persisted assistant message. Present on "results" so a client
-    // that already loaded this answer via chat_history can drop the duplicate.
     message_id?: string
 }
 
-// Compaction handshake state for a session. "awaiting" shows the confirm modal;
-// "running" shows a slim banner while the summary is generated. Kept inside
-// Runtime so it stashes/restores on session switch exactly like streaming state.
 type Compaction = {
     phase: "idle" | "awaiting" | "running"
     message?: string
@@ -87,23 +68,14 @@ const FIELD_LABELS: Record<string, string> = {
     marketplace: "Marketplace", barcodes: "Barcode", fda_numbers: "FDA no.", typical_uses: "Uses", health_info: "Health",
 }
 
-// The chat lives at /chat (new) and /chat/<session_id> (existing), so a reload
-// restores the conversation the user was on. Session ids are uuids we generate;
-// anything else in the slug is a hand-typed / stale URL and is treated as "new
-// chat" rather than sent to the backend.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const isSessionId = (s: string | undefined): s is string => !!s && UUID_RE.test(s)
 
-// Read the session id straight off the address bar. Used on popstate, where the
-// router's params aren't re-delivered because we drive the URL ourselves.
 const sessionIdFromPath = (): string | undefined => sessionIdFromSlug(window.location.pathname.split("/")[2])
 const sessionIdFromSlug = (slug: string | undefined): string | undefined => (isSessionId(slug) ? slug : undefined)
 
-// Point the address bar at a session WITHOUT a Next navigation. router.push
-// would remount this page on every session switch, tearing down the long-lived
-// socket and the in-flight cache; the native History API is supported by the App
-// Router and keeps usePathname in sync. See:
-// node_modules/next/dist/docs/01-app/02-guides/single-page-applications.md
+// Point the address bar at a session WITHOUT a Next navigation (keeps the socket
+// and in-flight caches alive across session switches).
 const syncUrl = (sessionId: string | null, mode: "push" | "replace" = "push") => {
     const url = sessionId ? `/chat/${sessionId}` : "/chat"
     if (window.location.pathname === url) return
@@ -134,8 +106,8 @@ async function fileToAttachedImage(file: File): Promise<AttachedImage> {
     return { previewUrl, base64, mimeType: file.type || "image/jpeg" }
 }
 
-// All per-session streaming state in one object, so a whole session can be moved
-// as a unit between the on-screen view and the background cache of in-flight ones.
+// All per-session streaming state in one object (moved as a unit between the
+// on-screen view and the background cache of in-flight sessions).
 type Runtime = {
     messages: Message[]
     loading: boolean
@@ -157,8 +129,6 @@ const emptyRuntime = (): Runtime => ({
     compaction: { phase: "idle" },
 })
 
-// Apply a single agent chunk to a runtime. Pure, so it drives both the on-screen
-// session (via the reducer) and backgrounded ones (on their cache entry) identically.
 const applyChunk = (rt: Runtime, data: StreamChunk): Runtime => {
     switch (data.type) {
         case "tool_status": {
@@ -180,18 +150,13 @@ const applyChunk = (rt: Runtime, data: StreamChunk): Runtime => {
             if (rt.webSources.some(s => s.url === data.url)) return rt
             return { ...rt, webSources: [...rt.webSources, { url: data.url as string, title: data.title, favicon: data.favicon, highlights: data.highlights }] }
         case "compaction_request":
-            // Turn is paused pending the user's decision — stop the spinner.
             return { ...rt, loading: false, compaction: { phase: "awaiting", message: data.message, disclaimer: data.disclaimer } }
         case "compaction_running":
             return { ...rt, loading: true, statusMessage: data.message ?? null, compaction: { phase: "running", message: data.message } }
         case "compaction_done":
         case "compaction_failed":
-            // The resumed answer streams next; leave loading as-is until results.
             return { ...rt, compaction: { phase: "idle" } }
         case "results": {
-            // The answer can reach us twice: once loaded from the DB by
-            // chat_history, once pushed over pub/sub as the pipeline finishes.
-            // Both carry the DB id, so the second one is dropped.
             const already = data.message_id !== undefined && rt.messages.some(m => m.id === data.message_id)
             const answer: Message = { id: data.message_id ?? crypto.randomUUID(), role: "agent", content: data.response ?? "", products: data.documents ?? [] }
             return {
@@ -225,14 +190,10 @@ const runtimeReducer = (rt: Runtime, action: RuntimeAction): Runtime => {
         case "send": return { ...emptyRuntime(), messages: [...rt.messages, action.message], loading: true, loadingPhrase: action.phrase }
         case "chunk": return applyChunk(rt, action.data)
         case "promptRejected": {
-            // Server rejected the just-sent prompt (rate/LLM cap): stop the spinner
-            // and drop the optimistic user bubble so a retry is clean.
             const messages = rt.messages.length && rt.messages[rt.messages.length - 1].role === "user" ? rt.messages.slice(0, -1) : rt.messages
             return { ...emptyRuntime(), messages }
         }
         case "resumeTurn":
-            // User answered the compaction prompt: close the modal and restart the
-            // spinner while the held turn resumes (server confirms via its chunks).
             return { ...rt, loading: true, compaction: { phase: "idle" } }
         case "toggleDetails": return { ...rt, detailsOpen: !rt.detailsOpen }
         case "openSearchDialog": return { ...rt, searchDialogOpen: { ...rt.searchDialogOpen, showDialog: true } }
@@ -256,6 +217,31 @@ function groupSessions(sessions: Session[]): Record<string, Session[]> {
     return groups
 }
 
+// Scoped HalalOne palette + base rules, namespaced under .hochat-root.
+const SCOPED_CSS = `
+.hochat-root{
+  --green-900:#07351F; --green-800:#0F4B2E; --green-700:#196B24; --green-100:#D9DED8;
+  --gold-600:#B7902F; --gold-500:#C9A248; --gold-200:#EBDFC0;
+  --cream-50:#FBFAF6; --cream-100:#F7F4EC;
+  --ink:#222222; --muted:#657269; --danger:#B23A2E; --border:#D9DED8;
+  --shadow-sm:0 2px 8px color-mix(in srgb,#07351F 8%,transparent);
+  --shadow-md:0 10px 28px color-mix(in srgb,#07351F 12%,transparent);
+  --font:var(--font-plus-jakarta-sans),ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-family:var(--font); color:var(--ink);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+.hochat-root *{box-sizing:border-box;}
+.hochat-root ::selection{background:var(--gold-200);color:var(--green-900);}
+.hochat-root .cscroll::-webkit-scrollbar{width:8px;}
+.hochat-root .cscroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--green-800) 20%,transparent);border-radius:8px;}
+.hochat-root .cscroll-d::-webkit-scrollbar{width:8px;}
+.hochat-root .cscroll-d::-webkit-scrollbar-thumb{background:rgba(251,250,246,.18);border-radius:8px;}
+.hochat-root #chat-input:empty:before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
+@keyframes hoc-fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+@keyframes hoc-blink{0%,80%,100%{opacity:.25;transform:translateY(0);}40%{opacity:1;transform:translateY(-3px);}}
+@keyframes hoc-pulse{0%,100%{opacity:.5;}50%{opacity:1;}}
+`
+
 export default function Page() {
     const router = useRouter()
     const supabase = createClient()
@@ -264,77 +250,59 @@ export default function Page() {
     const [authChecked, setAuthChecked] = useState<boolean>(false)
     const [profile, setProfile] = useState<{ name: string; email: string; avatarUrl: string }>({ name: "", email: "", avatarUrl: "" })
     const firstName = profile.name ? profile.name.split(" ")[0] : "there"
+    const initials = (profile.name || "U").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (!session) { router.push("/login"); return }
             const u = session.user
             const name = (u.user_metadata?.full_name as string) || (u.email ? u.email.split("@")[0] : "User")
-            // Google sign-in populates avatar_url/picture on the Supabase user.
             const avatarUrl = (u.user_metadata?.avatar_url as string) || (u.user_metadata?.picture as string) || ""
             setProfile({ name, email: u.email ?? "", avatarUrl })
             setAuthChecked(true)
         })
     }, [])
 
-    // ---- one long-lived socket, shared by the chat and the history cupboard ----
+    // ---- one long-lived socket ----
     const ws = useWebsocket(`${process.env.NEXT_PUBLIC_BACKEND_WS_URL}/ws`)
     const { isConnected, lastMessage, sendMessage, messageCount } = ws
 
     // ---- session routing ----
-    // /chat/<session_id> deep-links (and survives a reload); /chat is a new chat.
     const params = useParams<{ slug?: string[] }>()
     const initialSessionId = sessionIdFromSlug(Array.isArray(params.slug) ? params.slug[0] : undefined)
 
     const [threadId, setThreadId] = useState<string>(() => initialSessionId ?? crypto.randomUUID())
-    // Deep-linked into a session: start in the loading state so the skeleton shows
-    // immediately and the landing screen never flashes before the history lands.
     const [historyLoading, setHistoryLoading] = useState<boolean>(() => initialSessionId !== undefined)
-    // Read inside the [messageCount]-keyed receive effect, which would otherwise
-    // close over a stale value.
     const historyLoadingRef = useRef<boolean>(initialSessionId !== undefined)
     useEffect(() => { historyLoadingRef.current = historyLoading }, [historyLoading])
 
-    // ---- sidebar (their existing UI state) ----
-    const [isChatSessionOpen, setIsChatSessionOpen] = useState<boolean>(false)
-    const [isTextPresentSessionSearch, setIsTextPresentSessionSearch] = useState<boolean>(false)
+    // ---- sidebar ----
+    const [sidebarOpen, setSidebarOpen] = useState<boolean>(true)
+    const [, setIsTextPresentSessionSearch] = useState<boolean>(false)
     const [sessions, setSessions] = useState<Session[]>([])
     const [sessionQuery, setSessionQuery] = useState<string>("")
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-    const sessionSearchRef = useRef<HTMLDivElement | null>(null)
+    const sessionSearchRef = useRef<HTMLInputElement | null>(null)
 
     // ---- composer + view state ----
     const inputRef = useRef<HTMLDivElement | null>(null)
     const fileInputRef = useRef<HTMLInputElement | null>(null)
     const messagesEndRef = useRef<HTMLDivElement | null>(null)
     const [isTextPresent, setIsTextPresent] = useState<boolean>(false)
-    // Composer shape: oval (single line) → rectangle once the text wraps. Stays a
-    // rectangle until the input is fully empty again, then reverts to oval.
-    const [inputExpanded, setInputExpanded] = useState<boolean>(false)
     const [pendingImage, setPendingImage] = useState<AttachedImage | null>(null)
     const [dialogOpen, setDialogOpen] = useState<boolean>(false)
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
     const [toast, setToast] = useState<string | null>(null)
-    // Shown (after a short grace period) whenever the socket is down, so no
-    // message — prompt, chip, or image — can reach a disconnected backend.
     const [showDisconnected, setShowDisconnected] = useState<boolean>(false)
     const isConnectedRef = useRef(isConnected)
 
-    // All per-session streaming state in one reducer, so a whole session can be
-    // stashed/restored (and background sessions advanced) as a single unit.
     const [runtime, dispatch] = useReducer(runtimeReducer, undefined, emptyRuntime)
     const { messages, loading, statusMessage, loadingPhrase, intermediateSearchResults, toolCalls, reasoningContent, detailsOpen, webSources, searchDialogOpen, compaction } = runtime
     const hasMessages = messages.length > 0
-    // Block sending while a compaction decision is pending or running — the backend
-    // rejects it anyway, so gate it here for a clean UX.
     const compactionBlocking = compaction.phase !== "idle"
     const canSend = isTextPresent && !loading && isConnected && !compactionBlocking
 
-    // Tracks the session whose history we've already requested (avoids re-fetch loops).
     const loadedSessionRef = useRef<string | null>(null)
-    // Cache of sessions with an in-flight response ONLY. Leaving a streaming session
-    // stashes it so its stream survives the switch; returning restores it without a
-    // refetch. Evicted on completion, so it never fills with settled sessions.
     const inflightCacheRef = useRef<Map<string, Runtime>>(new Map())
     const prevThreadIdRef = useRef<string | null>(null)
     const runtimeRef = useRef(runtime)
@@ -346,8 +314,6 @@ export default function Page() {
     // incoming stashed one (no refetch) or clear the view so history is fetched.
     useEffect(() => {
         const prev = prevThreadIdRef.current
-        // Stash if streaming OR mid-compaction (awaiting a decision / running), so
-        // the modal/banner survives the switch just like live stream progress.
         if (prev && prev !== threadId && (loadingRef.current || runtimeRef.current.compaction.phase !== "idle")) {
             inflightCacheRef.current.set(prev, runtimeRef.current)
         }
@@ -355,26 +321,24 @@ export default function Page() {
 
         const cached = inflightCacheRef.current.get(threadId)
         if (cached) {
-            inflightCacheRef.current.delete(threadId)      // active again; re-stash on next leave
+            inflightCacheRef.current.delete(threadId)
             dispatch({ type: "hydrate", runtime: cached })
-            loadedSessionRef.current = threadId            // suppress the history fetch below
-            setHistoryLoading(false)                       // we already have messages; no skeleton
+            loadedSessionRef.current = threadId
+            setHistoryLoading(false)
             return
         }
         dispatch({ type: "reset" })
         loadedSessionRef.current = null
     }, [threadId])
 
-    // Request this session's history once the socket is up (serialize:false — this
-    // client routes streamed chunks itself, so it wants whatever is persisted now).
+    // Request this session's history once the socket is up.
     useEffect(() => {
         if (!isConnected) return
         if (loadedSessionRef.current === threadId) return
         sendMessage(JSON.stringify({ type: "chat_history", session_id: threadId, serialize: false }))
     }, [threadId, isConnected, sendMessage])
 
-    // Back/forward between sessions. We drive the URL with the History API, so the
-    // router won't re-render us on these — read the id off the path ourselves.
+    // Back/forward between sessions.
     useEffect(() => {
         const onPopState = () => {
             const id = sessionIdFromPath()
@@ -385,18 +349,18 @@ export default function Page() {
         return () => window.removeEventListener("popstate", onPopState)
     }, [])
 
-    // Ask for the session list whenever the cupboard opens.
+    // Ask for the session list on mount and whenever the socket (re)connects, so
+    // the always-visible sidebar stays populated.
     useEffect(() => {
-        if (isChatSessionOpen) sendMessage(JSON.stringify({ type: "chat_sessions" }))
-        else setConfirmDeleteId(null)
-    }, [isChatSessionOpen, sendMessage])
+        if (isConnected) sendMessage(JSON.stringify({ type: "chat_sessions" }))
+    }, [isConnected, sendMessage])
 
-    // Ctrl/Cmd+K opens the cupboard and focuses the session search.
+    // Ctrl/Cmd+K focuses the session search.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
                 e.preventDefault()
-                setIsChatSessionOpen(true)
+                setSidebarOpen(true)
                 setTimeout(() => sessionSearchRef.current?.focus(), 100)
             }
         }
@@ -410,17 +374,12 @@ export default function Page() {
         try {
             const data = JSON.parse(lastMessage)
 
-            // Rate-limit / high-load notice: toast it. If a prompt was optimistically
-            // in flight, this was its rejection — stop the spinner and drop the bubble.
             if (data.type === "rate_limited") {
                 setToast(data.response ?? "You have hit the rate limit. Please retry shortly.")
                 if (loadingRef.current) dispatch({ type: "promptRejected" })
                 return
             }
 
-            // Route pipeline chunks by session id. A chunk for a session that isn't on
-            // screen belongs to a stashed in-flight one: apply it to that cache entry so
-            // its progress survives. Its terminal "results" settles it → drop the stash.
             const streamTypes = ["tool_status", "reasoning", "search_results", "web_source", "results", "compaction_request", "compaction_running", "compaction_done", "compaction_failed"]
             if (streamTypes.includes(data.type)) {
                 if (data.session_id && data.session_id !== threadId) {
@@ -435,8 +394,6 @@ export default function Page() {
 
             if (data.type === "chat_history") {
                 if (data.session_id && data.session_id !== threadId) return
-                // Keep the DB id: a "results" chunk for an answer already loaded here
-                // carries the same id, which is how the duplicate gets dropped.
                 const msgs: Message[] = (data.messages ?? []).map((m: { id?: string; role: string; content: string; search_results?: Product[]; image_url?: string }) => ({
                     id: m.id ?? crypto.randomUUID(),
                     role: m.role === "assistant" ? "agent" : "user",
@@ -444,13 +401,6 @@ export default function Page() {
                     products: m.search_results ?? undefined,
                     imageUrl: m.image_url ?? undefined,
                 }))
-                // Asked for a session the backend has nothing for: it was deleted, it
-                // belongs to another user (get_messages is ownership-scoped and
-                // returns empty), or the id was hand-typed. Drop to a fresh chat
-                // rather than strand the user on a thread whose id they don't own.
-                // Guarded on historyLoadingRef so this only fires for a deep link or
-                // an explicit session pick — a brand-new local chat also gets an
-                // empty history back, and must not be recycled into another new id.
                 if (historyLoadingRef.current && msgs.length === 0) {
                     setHistoryLoading(false)
                     setThreadId(crypto.randomUUID())
@@ -458,17 +408,12 @@ export default function Page() {
                     return
                 }
 
-                // Re-show any pending compaction (fresh load / different instance).
-                // Server "compacting" maps to the client's "running" banner.
                 const c = data.compaction
                 const compaction: Compaction = c?.phase === "awaiting"
                     ? { phase: "awaiting", message: c.message, disclaimer: c.disclaimer }
                     : c?.phase === "compacting"
                         ? { phase: "running", message: c.message }
                         : { phase: "idle" }
-                // A pipeline is still running for this session somewhere in the
-                // fleet (reloaded mid-answer): keep the spinner up. The answer
-                // arrives on its own over pub/sub — no polling needed.
                 const stillRunning = data.inflight === true || compaction.phase === "running"
                 dispatch({
                     type: "hydrate",
@@ -487,7 +432,6 @@ export default function Page() {
             if (data.type === "delete_session" && data.status === "acknowledged") {
                 setSessions(prev => prev.filter(s => s.session_id !== data.session_id))
                 setToast("Session deleted")
-                // Deleted the open chat → start a fresh thread (its history is gone).
                 if (data.session_id === threadId) { setHistoryLoading(false); setThreadId(crypto.randomUUID()); syncUrl(null, "replace") }
                 return
             }
@@ -498,9 +442,7 @@ export default function Page() {
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages, loading])
     useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(null), 3500); return () => clearTimeout(id) }, [toast])
 
-    // Surface a persistent "connection lost" banner while the socket is down. The
-    // backend can't notify over a closed socket, so we detect it client-side via
-    // isConnected. A 3s grace avoids flashing on brief reconnects.
+    // Persistent "connection lost" banner while the socket is down (3s grace).
     useEffect(() => { isConnectedRef.current = isConnected }, [isConnected])
     useEffect(() => {
         if (isConnected) { setShowDisconnected(false); return }
@@ -509,34 +451,18 @@ export default function Page() {
     }, [isConnected])
 
     // ---- session actions ----
-    // A new chat stays at /chat until its first prompt: the session row only exists
-    // once the backend persists that message, so publishing the id sooner would put
-    // a URL in the user's history that resolves to nothing.
-    const handleNewChat = () => { setHistoryLoading(false); setThreadId(crypto.randomUUID()); syncUrl(null); setIsChatSessionOpen(false) }
-    const handleSelectSession = (id: string) => { if (id === threadId) { setIsChatSessionOpen(false); return } setHistoryLoading(true); setThreadId(id); syncUrl(id); setIsChatSessionOpen(false) }
-    // Dismissing the cupboard without picking a session (backdrop / X) resets the
-    // search so it reopens empty. Selecting a session keeps the filter — the
-    // contentEditable node is uncontrolled, so its text is cleared directly here.
-    const dismissSessions = () => {
-        setSessionQuery("")
-        setIsTextPresentSessionSearch(false)
-        if (sessionSearchRef.current) sessionSearchRef.current.innerText = ""
-        setIsChatSessionOpen(false)
-    }
+    const handleNewChat = () => { setHistoryLoading(false); setThreadId(crypto.randomUUID()); syncUrl(null) }
+    const handleSelectSession = (id: string) => { if (id === threadId) return; setHistoryLoading(true); setThreadId(id); syncUrl(id) }
     const handleDeleteSession = (id: string) => { sendMessage(JSON.stringify({ type: "delete_session", session_id: id })); setConfirmDeleteId(null) }
     const handleSignOut = async () => { await supabase.auth.signOut(); router.push("/login"); router.refresh() }
 
-    // ---- composer actions (ported) ----
+    // ---- composer actions ----
     const pickPhrase = () => LOADING_PHRASES[Math.floor(Math.random() * LOADING_PHRASES.length)]
 
-    // Track text presence and grow the composer into a rectangle once the text
-    // wraps past one line. It stays a rectangle until the input is fully empty.
     const handleInputChange = () => {
         const el = inputRef.current
         const hasChar = ((el?.innerText ?? "").replace(/\n/g, "")).length > 0
         setIsTextPresent(hasChar)
-        if (!hasChar) { setInputExpanded(false); return }
-        if (el && el.scrollHeight > 40) setInputExpanded(true)
     }
 
     const handleSend = () => {
@@ -544,14 +470,10 @@ export default function Page() {
         const text = (inputRef.current?.innerText ?? "").trim()
         if (!text) return
         sendMessage(JSON.stringify({ type: "prompt", session_id: threadId, message: text }))
-        // First prompt of a new chat: the session now exists server-side, so commit
-        // its id to the URL (replace, not push — /chat and /chat/<id> are the same
-        // conversation, and Back should leave the chat, not empty it).
         syncUrl(threadId, "replace")
         dispatch({ type: "send", message: { id: crypto.randomUUID(), role: "user", content: text }, phrase: pickPhrase() })
         if (inputRef.current) inputRef.current.innerText = ""
         setIsTextPresent(false)
-        setInputExpanded(false)
     }
 
     const handleCompactConfirm = () => {
@@ -564,7 +486,6 @@ export default function Page() {
         dispatch({ type: "resumeTurn" })
     }
 
-    // Send a starter-chip prompt without touching the composer.
     const sendChipPrompt = (text: string) => {
         if (!text.trim() || loading || !isConnected || compactionBlocking) return
         sendMessage(JSON.stringify({ type: "prompt", session_id: threadId, message: text }))
@@ -580,8 +501,6 @@ export default function Page() {
         e.target.value = ""
     }
 
-    // Pasting an image (copied photo / screenshot) routes through the same
-    // extraction flow as an upload; otherwise keep a plain-text paste.
     const handlePaste = async (e: ClipboardEvent<HTMLDivElement>) => {
         const imageFile =
             Array.from(e.clipboardData.files).find(f => f.type.startsWith("image/")) ??
@@ -622,116 +541,163 @@ export default function Page() {
         })
     )
 
-    // ---- the composer pill (their design, wired) ----
-    const inputBox = (
-        <div id="chat-content" className={`relative bg-white shadow-[0_0_15px_-3px_rgba(0,0,0,0.1),0_0_6px_-4px_rgba(0,0,0,0.1)] flex gap-x-2 min-h-[48px] py-2 px-4 transition-all duration-200 ${inputExpanded ? "rounded-[20px] items-end" : "rounded-full items-center"}`}>
-            <input disabled={!isConnected || compactionBlocking} ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
-            <motion.div whileHover={{ color: isConnected && !compactionBlocking ? fontThemes["dark-hex"] : undefined }} onClick={() => isConnected && !loading && !compactionBlocking && fileInputRef.current?.click()} id="upload-image-button" className={`${fontThemes["light-tailwind"]} ${isConnected && !compactionBlocking ? "cursor-pointer" : "opacity-40 cursor-default"}`}>
-                <ImageIcon className={`fill-current w-5.5 h-5.5`} />
-            </motion.div>
-
-            <div id="chat-input" ref={inputRef}
-                contentEditable={isConnected && !compactionBlocking}
-                onInput={handleInputChange}
-                onPaste={handlePaste}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend() } }}
-                className="flex-1 max-h-[120px] scrollbar-none overflow-y-auto focus:outline-none google-sans-flex-400 text-[19px] text-[#1F1F1F] tracking-tight">
-            </div>
-            {!isTextPresent && (
-                <span id="chat-input-placeholder" className={`absolute top-2.5 left-11.5 pointer-events-none text-[19px] google-sans-flex-400 text-[#1F1F1F]/60 tracking-tight`}>Is Haribo halal?</span>
-            )}
-
-            <motion.div whileHover={{ scale: canSend ? 1.05 : 1 }} onClick={() => canSend && handleSend()} id="send-prompt-button" className={`cursor-pointer rounded-full p-1.5 ${canSend ? "bg-teal-800" : "bg-teal-800/50 cursor-default"}`}>
-                <ArrowUpIcon className="w-4.5 h-4.5" />
-            </motion.div>
-        </div>
-    )
-
-    // ---- live "thinking" indicator (full: status + tool-call & reasoning dropdowns + search progress) ----
-    const loadingIndicator = (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-y-1.5">
-            {/* Shimmer bar */}
-            <div className="relative h-0.5 w-full overflow-hidden rounded-full bg-teal-800/10">
-                <motion.div className="absolute inset-y-0" style={{ width: "55%", background: "linear-gradient(90deg, transparent, rgba(19,78,74,0.45), transparent)" }} animate={{ x: ["-100%", "280%"] }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} />
-            </div>
-
-            {/* Status row */}
-            {statusMessage ? (
-                <button type="button" onClick={() => toolCalls.length > 0 && dispatch({ type: "toggleDetails" })} className={`flex items-center gap-x-1.5 text-left ${toolCalls.length > 0 ? "cursor-pointer" : "cursor-default"}`}>
-                    <motion.p key={statusMessage} initial={{ opacity: 0 }} animate={{ opacity: [0.4, 0.8, 0.4] }} transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }} className="google-sans-flex-400 text-sm text-[#1F1F1F]/45">
-                        {statusMessage}
-                    </motion.p>
-                    {toolCalls.length > 0 && (
-                        <motion.svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[#1F1F1F]/30" animate={{ rotate: detailsOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                            <polyline points="6 9 12 15 18 9" />
-                        </motion.svg>
-                    )}
+    // ---- composer pill ----
+    const composer = (
+        <div style={{ maxWidth: 760, margin: "0 auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid var(--border)", borderRadius: 26, padding: "8px 8px 8px 18px", boxShadow: "var(--shadow-md)" }}>
+                <input disabled={!isConnected || compactionBlocking} ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageSelect} />
+                <button
+                    type="button"
+                    aria-label="Attach image"
+                    onClick={() => isConnected && !loading && !compactionBlocking && fileInputRef.current?.click()}
+                    style={{ border: "none", background: "transparent", cursor: isConnected && !compactionBlocking ? "pointer" : "default", color: "var(--muted)", display: "flex", padding: 2, opacity: isConnected && !compactionBlocking ? 1 : 0.4 }}
+                >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" /><circle cx="8.5" cy="9.5" r="1.6" stroke="currentColor" strokeWidth="1.6" /><path d="m4 18 5-5 4 4 3-3 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
-            ) : (
-                <div className="flex items-center">
-                    <p className="google-sans-flex-400 text-sm tracking-tight text-[#1F1F1F]/35">{loadingPhrase}</p>
-                    <motion.svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="ml-2 shrink-0 text-[#1F1F1F]/30" animate={{ x: [6, 0, -6], opacity: [0, 1, 0] }} transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}>
-                        <polyline points="9 18 15 12 9 6" />
-                    </motion.svg>
+                <div
+                    id="chat-input"
+                    ref={inputRef}
+                    contentEditable={isConnected && !compactionBlocking}
+                    data-placeholder="Is Haribo halal?"
+                    onInput={handleInputChange}
+                    onPaste={handlePaste}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend() } }}
+                    style={{ flex: 1, minWidth: 0, maxHeight: 120, overflowY: "auto", outline: "none", fontFamily: "var(--font)", fontSize: 15, color: "var(--green-900)", padding: "6px 0", lineHeight: 1.5 }}
+                    className="cscroll"
+                />
+                <button
+                    type="button"
+                    onClick={() => canSend && handleSend()}
+                    aria-label="Send"
+                    style={{ flex: "0 0 auto", width: 40, height: 40, borderRadius: "50%", border: "none", background: canSend ? "var(--green-700)" : "color-mix(in srgb,var(--green-700) 45%,transparent)", color: "#fff", cursor: canSend ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .13s ease" }}
+                >
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 20V5M6 11l6-6 6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+            </div>
+
+            {!hasMessages && !loading && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 14 }}>
+                    {promptChips.map((chip) => (
+                        <button
+                            key={chip.id}
+                            onClick={() => sendChipPrompt(chip.text)}
+                            disabled={!isConnected}
+                            style={{ display: "flex", alignItems: "center", gap: 9, background: "#fff", border: "1px solid var(--border)", borderRadius: 999, padding: "9px 16px", cursor: isConnected ? "pointer" : "default", fontFamily: "var(--font)", fontSize: 13, fontWeight: 700, color: "var(--green-800)", boxShadow: "var(--shadow-sm)", opacity: isConnected ? 1 : 0.5 }}
+                        >
+                            <span style={{ color: "var(--gold-600)", display: "flex" }}>{chip.icon}</span>
+                            {chip.text}
+                        </button>
+                    ))}
                 </div>
             )}
 
-            {/* Tool-call + reasoning dropdown */}
-            <AnimatePresence>
-                {detailsOpen && (
-                    <motion.div className="flex gap-x-4 bg-teal-800/4 border border-teal-800/8 rounded-lg max-h-50 overflow-y-auto p-3">
-                        {toolCalls.length > 0 && (
-                            <div className="flex flex-col shrink-0 min-w-1/2 gap-y-2">
-                                <strong className="mb-1.5 text-sm font-mono text-[#1F1F1F]/50">Tool calls</strong>
-                                <div className="w-full flex justify-center mb-2.5"><div className="w-[98%] border-t border-teal-800/10" /></div>
-                                {toolCalls.map((tc, i) => (
-                                    <div key={i} className="flex flex-col gap-y-1.5">
-                                        <p className="text-xs font-mono text-[#1F1F1F]/50">{tc.tool}</p>
-                                        <pre className="text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all leading-relaxed text-[#1F1F1F]/35">{JSON.stringify(tc.args, null, 2)}</pre>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        {reasoningContent.length > 0 && (
-                            <div className="flex flex-col gap-y-2">
-                                <strong className="mb-1.5 text-sm font-mono text-[#1F1F1F]/50">Graph Execution</strong>
-                                <div className="w-full flex justify-center mb-2.5"><div className="w-[98%] border-t border-teal-800/10" /></div>
-                                {reasoningContent.map((r, i) => (
-                                    <div className={`flex flex-col gap-y-2 ${i === reasoningContent.length - 1 ? "pb-3" : ""}`} key={i}>
-                                        <div className="p-1 rounded-xs border border-teal-800/20 w-max"><p className="text-xs font-mono text-[#1F1F1F]/50">{r.node}</p></div>
-                                        <p className="text-xs font-mono text-[#1F1F1F]/50">{r.reasoning}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Search-progress button */}
-            <AnimatePresence>
-                {searchDialogOpen.showButton && (
-                    <motion.div onClick={() => dispatch({ type: "openSearchDialog" })} initial={{ opacity: 0 }} animate={{ opacity: [0.4, 0.8, 1] }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="w-max px-2 py-1 cursor-pointer flex gap-x-2 items-center rounded-xs border border-teal-800/20">
-                        <div className="w-2 h-2 bg-teal-800/30 rounded-full"></div>
-                        <p className="text-xs font-mono text-[#1F1F1F]/50">See search progress</p>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
+            <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", marginTop: 14 }}>
+                HalalOne can make mistakes. Refer to full <span style={{ fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }}>guide</span>.
+            </div>
+        </div>
     )
 
-    // Skeleton while an existing session's history is being fetched.
-    const messagesSkeleton = (
-        <div className="w-[90%] md:w-[75%] lg:w-[45%] mx-auto flex flex-col gap-y-6 pt-6">
-            {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={`flex ${i % 2 === 1 ? "justify-end" : "justify-start"}`}>
-                    {i % 2 === 1 ? (
-                        <div className="h-10 w-1/2 rounded-2xl rounded-br-sm animate-pulse bg-teal-800/8" />
+    // ---- live "thinking" indicator (status + tool-call & reasoning dropdowns + search progress) ----
+    const loadingIndicator = (
+        <div style={{ animation: "hoc-fade .2s ease both" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ flex: "0 0 auto", width: 32, height: 32, borderRadius: 9, background: "linear-gradient(150deg,#0F4B2E,#07351F)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <svg width="18" height="18" viewBox="-16 -16 32 32" aria-hidden="true"><path d="M0 -13 L11.3 -6.5 L11.3 6.5 L0 13 L-11.3 6.5 L-11.3 -6.5 Z" fill="none" stroke="var(--gold-500)" strokeWidth="2.8" strokeLinejoin="round" /><path d="M-5 0.5 L-1.3 4.6 L5.8 -4.5" fill="none" stroke="var(--cream-50)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* status row */}
+                    {statusMessage ? (
+                        <button type="button" onClick={() => toolCalls.length > 0 && dispatch({ type: "toggleDetails" })} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", cursor: toolCalls.length > 0 ? "pointer" : "default", padding: 0, textAlign: "left" }}>
+                            <span style={{ fontSize: 13, color: "var(--muted)" }}>{statusMessage}</span>
+                            {toolCalls.length > 0 && (
+                                <motion.svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" animate={{ rotate: detailsOpen ? 180 : 0 }} transition={{ duration: 0.2 }}><polyline points="6 9 12 15 18 9" /></motion.svg>
+                            )}
+                        </button>
                     ) : (
-                        <div className="w-full flex flex-col gap-y-2">
-                            <div className="h-3 w-3/4 rounded animate-pulse bg-teal-800/8" />
-                            <div className="h-3 w-5/6 rounded animate-pulse bg-teal-800/8" />
-                            <div className="h-24 w-full rounded-xl animate-pulse bg-teal-800/5" />
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green-700)", animation: "hoc-blink 1s infinite" }} />
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green-700)", animation: "hoc-blink 1s infinite .18s" }} />
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green-700)", animation: "hoc-blink 1s infinite .36s" }} />
+                            <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 6 }}>{loadingPhrase || "Checking halal status…"}</span>
+                        </div>
+                    )}
+
+                    {/* tool-call + reasoning dropdown */}
+                    <AnimatePresence>
+                        {detailsOpen && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} style={{ overflow: "hidden" }}>
+                                <div style={{ display: "flex", gap: 16, background: "color-mix(in srgb,var(--green-800) 4%,transparent)", border: "1px solid color-mix(in srgb,var(--green-800) 10%,transparent)", borderRadius: 10, maxHeight: 200, overflowY: "auto", padding: 12 }}>
+                                    {toolCalls.length > 0 && (
+                                        <div style={{ display: "flex", flexDirection: "column", flexShrink: 0, minWidth: "50%", gap: 8 }}>
+                                            <strong style={{ fontSize: 12, fontFamily: "monospace", color: "var(--muted)" }}>Tool calls</strong>
+                                            {toolCalls.map((tc, i) => (
+                                                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                                    <p style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: "var(--muted)" }}>{tc.tool}</p>
+                                                    <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--green-800)" }}>{JSON.stringify(tc.args, null, 2)}</pre>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {reasoningContent.length > 0 && (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                            <strong style={{ fontSize: 12, fontFamily: "monospace", color: "var(--muted)" }}>Graph Execution</strong>
+                                            {reasoningContent.map((r, i) => (
+                                                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                    <div style={{ padding: 4, borderRadius: 4, border: "1px solid color-mix(in srgb,var(--green-800) 20%,transparent)", width: "max-content" }}><p style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: "var(--muted)" }}>{r.node}</p></div>
+                                                    <p style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: "var(--muted)" }}>{r.reasoning}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* search-progress button */}
+                    <AnimatePresence>
+                        {searchDialogOpen.showButton && (
+                            <motion.button type="button" onClick={() => dispatch({ type: "openSearchDialog" })} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ width: "max-content", padding: "5px 10px", cursor: "pointer", display: "flex", gap: 8, alignItems: "center", borderRadius: 8, border: "1px solid color-mix(in srgb,var(--green-800) 20%,transparent)", background: "#fff" }}>
+                                <span style={{ width: 8, height: 8, background: "var(--gold-500)", borderRadius: "50%" }} />
+                                <span style={{ fontSize: 11.5, fontFamily: "monospace", color: "var(--muted)" }}>See search progress</span>
+                            </motion.button>
+                        )}
+                    </AnimatePresence>
+
+                    {/* live web sources */}
+                    {webSources.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, borderRadius: 12, padding: 12, border: "1px solid var(--border)", background: "#fff" }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--muted)" }}>Searching the web…</span>
+                            {webSources.map((s, i) => (
+                                <a key={s.url ?? i} href={s.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        {s.favicon ? <img src={s.favicon} alt="" style={{ width: 16, height: 16, borderRadius: 3, objectFit: "contain" }} /> : <span style={{ width: 16, height: 16, borderRadius: 3, background: "color-mix(in srgb,var(--green-800) 10%,transparent)" }} />}
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--green-800)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title || hostOf(s.url)}</span>
+                                    </div>
+                                    {s.highlights && s.highlights[0] && (
+                                        <p style={{ margin: 0, paddingLeft: 24, fontSize: 12, color: "var(--muted)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{s.highlights[0]}</p>
+                                    )}
+                                </a>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+
+    // Skeleton while an existing session's history loads.
+    const messagesSkeleton = (
+        <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 22, paddingTop: 8 }}>
+            {[0, 1, 2, 3].map((i) => (
+                <div key={i} style={{ display: "flex", justifyContent: i % 2 === 1 ? "flex-end" : "flex-start" }}>
+                    {i % 2 === 1 ? (
+                        <div style={{ height: 40, width: "50%", borderRadius: 16, background: "color-mix(in srgb,var(--green-700) 8%,transparent)", animation: "hoc-pulse 1.4s ease-in-out infinite" }} />
+                    ) : (
+                        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ height: 12, width: "75%", borderRadius: 6, background: "color-mix(in srgb,var(--green-700) 8%,transparent)", animation: "hoc-pulse 1.4s ease-in-out infinite" }} />
+                            <div style={{ height: 12, width: "85%", borderRadius: 6, background: "color-mix(in srgb,var(--green-700) 8%,transparent)", animation: "hoc-pulse 1.4s ease-in-out infinite" }} />
+                            <div style={{ height: 90, width: "100%", borderRadius: 12, background: "color-mix(in srgb,var(--green-700) 5%,transparent)", animation: "hoc-pulse 1.4s ease-in-out infinite" }} />
                         </div>
                     )}
                 </div>
@@ -739,346 +705,194 @@ export default function Page() {
         </div>
     )
 
-    if (!authChecked) return <div className="w-full min-h-dvh h-dvh" />
+    if (!authChecked) return <div className="hochat-root" style={{ height: "100dvh", background: "var(--cream-50)" }}><style>{SCOPED_CSS}</style></div>
 
     return (
-        <div className="w-full min-h-dvh h-dvh flex flex-col bg-gray-100/10 relative overflow-x-hidden">
-            {/* Persistent connection-lost banner — stays until the socket restores. */}
-            <AnimatePresence>
-                {showDisconnected && (
-                    <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} id="connection-alert" className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-x-2 px-4 py-1.5 rounded-full bg-red-500 shadow-lg">
-                        <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                        <p className="google-sans-flex-500 text-sm text-white tracking-tight">Connection lost — trying to reconnect…</p>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-            {/* Backdrop — click outside the open cupboard to close it. */}
-            <AnimatePresence>
-                {isChatSessionOpen && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={dismissSessions} className="fixed inset-0 z-9 bg-black/10" />
-                )}
-            </AnimatePresence>
-            <motion.div initial={{ x: "-100%" }} animate={{ x: isChatSessionOpen ? "0%" : "-100%" }} transition={{ duration: 0.4, ease: "linear" }} id="chat-history-cupboard" className="h-full absolute top-0 z-10">
-                <div className="w-70 md:w-80 h-full bg-linear-to-b/hsl from-[#fbfffe] to-[#f6fffe] border-r border-teal-800/5 flex flex-col gap-y-2 p-4">
-                    <div id="sidepanel-control" className="w-full flex items-center">
-                        <div id="brand-logo" className="text-teal-800 flex">
-                            <Image src="/images/halal_one_logo_pic.png" alt="halal_one_logo" width={120} height={20} />
-                        </div>
-                        <div onClick={dismissSessions} className="text-teal-800 ml-auto cursor-pointer">
-                            <RightPanelCloseIcon className="w-6 h-6 fill-current" />
+        <div className="hochat-root" style={{ height: "100dvh", display: "flex", overflow: "hidden", background: "var(--cream-50)" }}>
+            <style>{SCOPED_CSS}</style>
+
+            {/* ============ SIDEBAR ============ */}
+            <aside className="cscroll-d" style={{ width: sidebarOpen ? 280 : 0, flex: "0 0 auto", background: "linear-gradient(180deg,#0F4B2E,#07351F)", color: "var(--cream-50)", display: "flex", flexDirection: "column", transition: "width .22s ease", overflow: "hidden", position: "relative" }}>
+                <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='56' height='56' viewBox='0 0 56 56' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M28 3L50 28L28 53L6 28Z' fill='none' stroke='rgba(251,250,246,0.04)' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "56px", pointerEvents: "none" }} />
+                <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", width: 280 }}>
+                    {/* brand row */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 14px" }}>
+                        <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <svg width="28" height="28" viewBox="-16 -16 32 32" aria-hidden="true"><path d="M0 -13 L11.3 -6.5 L11.3 6.5 L0 13 L-11.3 6.5 L-11.3 -6.5 Z" fill="none" stroke="var(--gold-500)" strokeWidth="2.6" strokeLinejoin="round" /><path d="M-5 0.5 L-1.3 4.6 L5.8 -4.5" fill="none" stroke="var(--cream-50)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em", color: "#fff" }}>Halal<span style={{ color: "var(--gold-500)" }}>One</span></div>
+                        </Link>
+                        <button onClick={() => setSidebarOpen(false)} aria-label="Collapse sidebar" title="Collapse" style={{ border: "none", background: "transparent", cursor: "pointer", color: "color-mix(in srgb,var(--cream-50) 70%,transparent)", padding: 4, display: "flex" }}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" /><path d="M9 4v16" stroke="currentColor" strokeWidth="1.8" /></svg>
+                        </button>
+                    </div>
+
+                    {/* new chat */}
+                    <div style={{ padding: "2px 16px 12px" }}>
+                        <button onClick={handleNewChat} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 9, padding: 12, borderRadius: 12, border: "none", background: "var(--gold-500)", color: "var(--green-900)", cursor: "pointer", fontFamily: "var(--font)", fontSize: 14, fontWeight: 800, letterSpacing: "-0.01em" }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
+                            New Chat
+                        </button>
+                    </div>
+
+                    {/* search */}
+                    <div style={{ padding: "0 16px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 9, background: "rgba(251,250,246,.1)", border: "1px solid rgba(251,250,246,.16)", borderRadius: 11, padding: "10px 13px" }}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="8" stroke="color-mix(in srgb,var(--cream-50) 70%,transparent)" strokeWidth="2" /><path d="m21 21-4.35-4.35" stroke="color-mix(in srgb,var(--cream-50) 70%,transparent)" strokeWidth="2" strokeLinecap="round" /></svg>
+                            <input
+                                ref={sessionSearchRef}
+                                type="text"
+                                value={sessionQuery}
+                                onChange={(e) => { setSessionQuery(e.target.value); setIsTextPresentSessionSearch(e.target.value.length > 0) }}
+                                placeholder="Search chats"
+                                style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: "var(--font)", fontSize: 13, color: "#fff" }}
+                            />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "color-mix(in srgb,var(--cream-50) 45%,transparent)", border: "1px solid rgba(251,250,246,.2)", borderRadius: 5, padding: "1px 5px" }}>Ctrl+K</span>
                         </div>
                     </div>
-                    {/* new chat → fresh thread id (change wires this to the backend) */}
-                    <motion.div onClick={handleNewChat} id="new-chat-button" whileTap={{ scale: 0.99 }} transition={{ duration: 0.2, ease: 'easeInOut' }} className="mt-[50%] w-full text-white px-4 py-2 rounded-lg bg-[#191919] flex gap-x-2 justify-center items-center cursor-pointer">
-                        <InkPenIcon className="w-4.5 h-4.5 fill-current" />
-                        <p className="google-sans-flex-500 text-[15px] tracking-tight">New Chat</p>
-                    </motion.div>
 
-                    <motion.div id="search-chat-sessions" className="border border-[#1f1f1f]/10 rounded-lg px-4 py-2 flex gap-x-2 items-center relative w-full bg-white inset-shadow-sm">
-                        <div className="">
-                            <SearchIcon className="w-4.5 h-4.5" />
-                        </div>
-                        {/* filters the loaded session list by title/description */}
-                        <div
-                            ref={sessionSearchRef}
-                            contentEditable
-                            onInput={(e) => {
-                                const t = (e.currentTarget.innerText ?? "").trim();
-                                setIsTextPresentSessionSearch(t.length > 0);
-                                setSessionQuery(t);
-                            }}
-                            className="scrollbar-none flex-1 min-w-0 focus:outline-none google-sans-flex-400 text-sm text-[#1f1f1f]/90 overflow-x-auto whitespace-nowrap"
-                        ></div>
-                        {!isTextPresentSessionSearch && (
-                            <span id="search-sessions-placeholder" className="absolute top-[9px] left-[41px] google-sans-flex-400 text-sm text-[#1f1f1f]/60">Search</span>
-                        )}
-                        <span className="google-sans-flex-400 text-sm text-[#115e59] tracking-tighter">Ct+k</span>
-                    </motion.div>
-
-                    <div id="chat-sessions" className="border-t border-teal-800/5 mt-4 flex-1 overflow-y-auto">
-                        {/* Empty state — no past sessions yet. The prompt fires straight to the backend. */}
+                    {/* history */}
+                    <div className="cscroll-d" style={{ flex: 1, overflowY: "auto", padding: "2px 8px 12px" }}>
                         {sessions.length === 0 && (
-                            <div className="flex flex-col items-center gap-y-3 mt-12 px-2 text-center">
-                                <TrashIcon className="w-20 h-20 fill-current text-teal-800/30" />
-                                <p className="google-sans-flex-500 text-sm text-[#1f1f1f]/70">No sessions yet. <br />
-                                    <span className="google-sans-flex-500 text-sm text-[#1f1f1f]/70">Start your first session with Halalify, now!</span></p>
-                                <motion.div
-                                    onClick={() => { sendChipPrompt("Is Coca-Cola halal?"); setIsChatSessionOpen(false) }}
-                                    whileTap={{ scale: isConnected ? 0.98 : 1 }}
-                                    whileHover={{ scale: isConnected ? 1.02 : 1 }}
-                                    transition={{ duration: 0.2, ease: "linear" }}
-                                    className={`shadow-sm rounded-full px-4 py-2 bg-white border border-teal-800/8 ${isConnected ? "cursor-pointer" : "opacity-50 cursor-default"}`}
-                                >
-                                    <p className="google-sans-flex-500 text-sm text-teal-800 tracking-tight">Is Coca-Cola halal?</p>
-                                </motion.div>
+                            <div style={{ padding: "24px 14px", textAlign: "center", fontSize: 12.5, color: "color-mix(in srgb,var(--cream-50) 55%,transparent)", lineHeight: 1.6 }}>
+                                No chats yet. Start your first conversation with HalalOne.
                             </div>
                         )}
-                        {Object.entries(groupedSessions).map(([key, value]) => value.length === 0 ? null : (
-                            <div className="mt-4 overflow-hidden" key={key}>
-                                <p className="google-sans-flex-400 text-xs tracking-tight text-[#1F1F1F]/60">{key}</p>
-                                {value.map(item => (
-                                    <motion.div
-                                        key={item.session_id}
-                                        whileTap={{ scale: 0.99 }}
-                                        whileHover={{ scale: 1.01 }}
-                                        transition={{ duration: 0.3, ease: 'linear' }}
-                                        onClick={() => handleSelectSession(item.session_id)}
-                                        className={`group my-3 w-full flex items-center gap-x-2 cursor-pointer ${item.session_id === threadId ? "opacity-100" : ""}`}
-                                    >
-                                        <p className={`google-sans-flex-400 truncate tracking-tight text-sm flex-1 min-w-0 ${item.session_id === threadId ? "text-teal-800" : "text-[#000000]"}`}>
-                                            {item.description || item.title}
-                                        </p>
-                                        {/* delete with inline confirm (✓ / ✗), revealed on hover */}
-                                        {confirmDeleteId === item.session_id ? (
-                                            <div className="shrink-0 flex items-center gap-x-1">
-                                                <button onClick={(e) => { e.stopPropagation(); handleDeleteSession(item.session_id) }} className="text-red-500 cursor-pointer">
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                                                </button>
-                                                <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null) }} className="text-[#1f1f1f]/40 cursor-pointer">
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(item.session_id) }} className="shrink-0 text-[#1f1f1f]/30 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity cursor-pointer">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                        {Object.entries(groupedSessions).map(([label, items]) => items.length === 0 ? null : (
+                            <div key={label} style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--gold-500)", padding: "10px 10px 6px" }}>{label}</div>
+                                {items.map((item) => {
+                                    const active = item.session_id === threadId
+                                    return (
+                                        <div key={item.session_id} style={{ display: "flex", alignItems: "center", gap: 4, borderRadius: 9, background: active ? "rgba(251,250,246,.12)" : "transparent" }}>
+                                            <button
+                                                onClick={() => handleSelectSession(item.session_id)}
+                                                title={item.description || item.title}
+                                                style={{ flex: 1, minWidth: 0, textAlign: "left", border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--font)", fontSize: 13, color: active ? "#fff" : "color-mix(in srgb,var(--cream-50) 82%,transparent)", padding: "9px 10px", borderRadius: 9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                                            >
+                                                {item.description || item.title}
                                             </button>
-                                        )}
-                                    </motion.div>
-                                ))}
+                                            {confirmDeleteId === item.session_id ? (
+                                                <div style={{ display: "flex", gap: 2, paddingRight: 6 }}>
+                                                    <button onClick={() => handleDeleteSession(item.session_id)} aria-label="Confirm delete" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#ff8a80", display: "flex", padding: 2 }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                                    </button>
+                                                    <button onClick={() => setConfirmDeleteId(null)} aria-label="Cancel delete" style={{ border: "none", background: "transparent", cursor: "pointer", color: "color-mix(in srgb,var(--cream-50) 55%,transparent)", display: "flex", padding: 2 }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button onClick={() => setConfirmDeleteId(item.session_id)} aria-label="Delete session" style={{ border: "none", background: "transparent", cursor: "pointer", color: "color-mix(in srgb,var(--cream-50) 45%,transparent)", display: "flex", padding: 2, marginRight: 6 }}>
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /></svg>
+                                                </button>
+                                            )}
+                                        </div>
+                                    )
+                                })}
                             </div>
                         ))}
                     </div>
-                    <motion.div whileTap={{ scale: 0.99 }} onClick={handleSignOut} id="sign-out-button" className="bg-[#f8f8f8] hover:bg-[#ffffff] mt-auto px-4 py-2 border cursor-pointer border-[#1f1f1f]/5 rounded-lg">
-                        <div className="flex gap-x-2 items-center">
-                            {/* Google avatar if available, else an initial in a brand circle */}
-                            {profile.avatarUrl ? (
-                                <div className="rounded-full border border-[#1f1f1f]/10 w-7 h-7 bg-cover bg-center shrink-0" style={{ backgroundImage: `url(${profile.avatarUrl})` }} />
-                            ) : (
-                                <div className="rounded-full w-7 h-7 bg-teal-800 flex items-center justify-center shrink-0">
-                                    <span className="google-sans-flex-600 text-xs text-white">{(profile.name || "U").charAt(0).toUpperCase()}</span>
-                                </div>
-                            )}
-                            <div id="profile-details-box" className="flex flex-col min-w-0">
-                                <p className="google-sans-flex-500 text-xs tracking-tight text-[#1f1f1f] truncate">{profile.name || "User"}</p>
-                                <p className="google-sans-flex-400 text-xs tracking-tight text-[#1f1f1f]/60 truncate">{profile.email}</p>
-                            </div>
-                            <LogoutIcon className="ml-auto w-6 h-6 fill-current text-[#1f1f1f]/70" />
-                        </div>
-                    </motion.div>
-                </div>
-            </motion.div>
-            <div id="sidebar-line" className="hidden md:block absolute h-full w-px bg-[#1f1f1f]/10 left-14"></div>
-            <div id="top-options" className="py-2 px-3 w-full flex items-center">
-                <div id="sidebar-handles" className="w-max text-teal-800 flex items-center gap-x-2">
-                    <motion.div onClick={() => { setIsChatSessionOpen(true) }} className="cursor-pointer">
-                        <RightPanelOpenIcon className="w-6 h-6 fill-current" />
-                    </motion.div>
-                    {/* Back to the landing page */}
-                    <Link href="/" id="home-button" className="ml-6 flex items-center gap-x-1.5 border border-teal-800/10 hover:bg-teal-800/5 transition-colors px-3 py-1 rounded-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M9 22V12h6v10" /></svg>
-                        <p className="google-sans-flex-500 text-[13px] tracking-tight">Home</p>
-                    </Link>
-                </div>
-                <div id="brand-logo" className="ml-auto text-teal-800 border border-teal-800/5 flex w-max px-4 py-1 rounded-md">
-                    {/* <HalalOneIcon className="fill-current" />
-                    <p className={`dm-sans-700 tracking-tighter`}>HalalOne</p> */}
-                    <Image src="/images/halal_one_logo_pic.png" alt="halal_one_logo" width={100} height={5} />
-                </div>
-            </div>
 
-            {/* ---- chat column: skeleton / landing / conversation ---- */}
-            {historyLoading && !hasMessages ? (
-                <div id="chat-column" className="flex-1 overflow-y-auto p-2">
-                    {messagesSkeleton}
-                </div>
-            ) : !hasMessages ? (
-                <div id="chat-column" className="flex flex-col justify-center-safe items-center-safe flex-1 p-2 mb-8 relative">
-                    <div className="h-full relative flex flex-col justify-center-safe items-center-safe">
-                        <motion.div initial={{ rotate: 0 }} animate={{ rotate: 360 }} transition={{ duration: 10, ease: "linear", repeat: Infinity, repeatType: "loop" }}
-                            className="absolute w-80 h-80 md:w-100 md:h-100 blur-2xl">
-                            <div className="w-full h-full bg-radial from-teal-200/10 via-teal-400/10 to-teal-600/10 rounded-[60%_40%_30%_70%/60%_30%_70%_40%]"></div>
-                        </motion.div>
-                        <p className="whitespace-pre-line inter-500 text-4xl tracking-tighter subpixel-antialiased text-center text-teal-800">Hello {firstName},<br /><span className="text-black">How can I assist you today?</span></p>
-                    </div>
-                    <div className="mt-auto w-full flex flex-col gap-y-4 items-center">
-                        <div id="chat-box-content" className={`rounded-[17px] w-[90%] md:w-[75%] lg:w-[35%]`}>
-                            {inputBox}
+                    {/* user */}
+                    <div style={{ borderTop: "1px solid rgba(251,250,246,.14)", padding: "12px 14px", display: "flex", alignItems: "center", gap: 11 }}>
+                        <SidebarAvatar url={profile.avatarUrl} initials={initials} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile.name || "User"}</div>
+                            <div style={{ fontSize: 11, color: "color-mix(in srgb,var(--cream-50) 55%,transparent)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile.email}</div>
                         </div>
-                        <div className="flex justify-center items-center w-[90%] md:w-[75%] lg:w-[35%]">
-                            <div className="md:hidden grid grid-cols-1 gap-2">
-                                {promptChips.slice(0, 2).map((chip) => (
-                                    <motion.div key={chip.id} onClick={() => sendChipPrompt(chip.text)} whileTap={{ scale: isConnected ? 0.98 : 1 }} whileHover={{ scale: isConnected ? 1.02 : 1 }} transition={{ duration: 0.2, ease: "linear" }} className={`shadow-sm rounded-full px-4 py-2 bg-white ${isConnected ? "cursor-pointer" : "opacity-50 cursor-default"}`}>
-                                        <div className="flex gap-x-2 items-center">
-                                            <div>{chip.icon}</div>
-                                            <div>
-                                                <p className={`google-sans-flex-600 text-sm subpixel-antialiased ${fontThemes["dark-tailwind"]} tracking-tighter`}>{chip.text}</p>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
-                            <div className="hidden md:grid md:grid-cols-2 md:gap-2">
-                                {promptChips.map((chip) => (
-                                    <motion.div key={chip.id} onClick={() => sendChipPrompt(chip.text)} whileTap={{ scale: isConnected ? 0.98 : 1 }} whileHover={{ scale: isConnected ? 1.02 : 1 }} transition={{ duration: 0.2, ease: "linear" }} className={`shadow-sm rounded-full px-4 py-2 bg-white ${isConnected ? "cursor-pointer" : "opacity-50 cursor-default"}`}>
-                                        <div className="flex gap-x-2 items-center">
-                                            <div>{chip.icon}</div>
-                                            <div>
-                                                <p className={`google-sans-flex-600 text-sm subpixel-antialiased ${fontThemes["dark-tailwind"]} tracking-tighter`}>{chip.text}</p>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
-                        </div>
+                        <button onClick={handleSignOut} aria-label="Sign out" style={{ border: "none", background: "transparent", cursor: "pointer", color: "color-mix(in srgb,var(--cream-50) 65%,transparent)", padding: 4, display: "flex" }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        </button>
                     </div>
                 </div>
-            ) : (
-                <div id="chat-column" className="flex flex-col flex-1 overflow-hidden relative">
-                    {/* messages scroll */}
-                    <div className="flex-1 overflow-y-auto">
-                        <div className="w-[90%] md:w-[75%] lg:w-[35%] mx-auto flex flex-col gap-y-6 pt-6 pb-4">
-                            {messages.map((msg) => (
-                                <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                                    {msg.role === "user" ? (
-                                        <div className="max-w-[75%] flex flex-col gap-y-2 items-end">
-                                            {(msg.imageDataUrl || msg.imageUrl) && (
-                                                <img src={msg.imageDataUrl || msg.imageUrl} alt="" className="w-36 h-36 rounded-2xl rounded-br-sm object-cover" />
-                                            )}
-                                            {msg.content && <UserBubble content={msg.content} />}
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col gap-y-3 w-full">
-                                            {msg.content && (
-                                                <div className="leading-relaxed google-sans-flex-400 text-[#1f1f1f]/85 text-[19px]">
-                                                    <Markdown textContent={msg.content} theme="light" />
-                                                </div>
-                                            )}
-                                            {msg.products && msg.products.length > 0 && (
-                                                <div className="flex flex-col gap-y-2">
-                                                    {msg.products.map((product, i) => (
-                                                        <motion.div
-                                                            key={product.canonical_id}
-                                                            role="button"
-                                                            tabIndex={0}
-                                                            initial={{ opacity: 0, y: 10 }}
-                                                            animate={{ opacity: 1, y: 0 }}
-                                                            transition={{ duration: 0.25, delay: i * 0.06 }}
-                                                            onClick={() => setSelectedProduct(product)}
-                                                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedProduct(product) } }}
-                                                            className="relative group rounded-xl p-4 flex flex-col gap-y-3 transition-all duration-200 overflow-hidden cursor-pointer focus:outline-none border border-teal-800/8 bg-white shadow-sm hover:shadow-md hover:border-teal-800/15"
-                                                        >
-                                                            <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl ${statusAccent(product.halal_status ?? "")}`} />
-                                                            <div className="pl-3 flex flex-col gap-y-3">
-                                                                <div className="flex items-start justify-between gap-x-4">
-                                                                    <p className="google-sans-flex-600 capitalize leading-snug text-[#1f1f1f]">{product.norm_name}</p>
-                                                                    {product.verified === false ? (
-                                                                        <span className="shrink-0 flex items-center gap-x-1.5 text-xs google-sans-flex-500 px-2.5 py-1 rounded-full text-amber-500 bg-amber-500/10 border border-amber-500/30">
-                                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                                                            Unverified
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className={`shrink-0 flex items-center gap-x-1.5 text-xs google-sans-flex-500 px-2.5 py-1 rounded-full ${statusBadge(product.halal_status ?? "")}`}>
-                                                                            <span className={`w-1.5 h-1.5 rounded-full ${statusDot(product.halal_status ?? "")}`} />
-                                                                            {product.halal_status}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                {(product.category_l1 || product.category_l2) && (
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {[product.category_l1, product.category_l2].filter(Boolean).map((cat, j) => (
-                                                                            <span key={j} className="text-xs google-sans-flex-400 px-2 py-0.5 rounded-md border text-[#1f1f1f]/50 bg-teal-800/4 border-teal-800/8">{cat}</span>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                                {product.companies && product.companies.length > 0 && (
-                                                                    <p className="text-sm google-sans-flex-400 leading-relaxed text-[#1f1f1f]/70">
-                                                                        {product.companies.map(c => c.charAt(0).toUpperCase() + c.slice(1).toLowerCase()).join(" · ")}
-                                                                    </p>
-                                                                )}
-                                                                {product.cert_bodies && product.cert_bodies.length > 0 && (
-                                                                    <div className="flex flex-wrap items-center gap-1.5">
-                                                                        <span className="google-sans-flex-400 text-xs text-[#1f1f1f]/30">Certified by</span>
-                                                                        {product.cert_bodies.map((body, j) => (
-                                                                            <span key={j} className="text-xs google-sans-flex-400 text-teal-700 bg-teal-800/8 border border-teal-800/15 px-2 py-0.5 rounded-md">{body}</span>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                                {product.verified === false && product.grounding && product.grounding.length > 0 && (
-                                                                    <div className="flex flex-col gap-y-2 pt-2 border-t border-teal-800/8">
-                                                                        <span className="text-xs google-sans-flex-500 text-amber-600">Unverified · sourced from web</span>
-                                                                        {product.grounding.map((g, gi) => {
-                                                                            const value = formatFieldValue(product[g.field as keyof Product])
-                                                                            if (!value) return null
-                                                                            const sites = Array.from(new Map(g.citations.map(c => [hostOf(c.url), c])).values())
-                                                                            return (
-                                                                                <div key={gi} className="flex items-center justify-between gap-x-3">
-                                                                                    <p className="text-xs google-sans-flex-400 leading-snug min-w-0">
-                                                                                        <span className="text-[#1f1f1f]/40">{FIELD_LABELS[g.field] ?? g.field}: </span>
-                                                                                        <span className="text-[#1f1f1f]/80">{value}</span>
-                                                                                    </p>
-                                                                                    {sites.length > 0 && (
-                                                                                        <div className="inline-flex items-center gap-x-2 shrink-0 px-2 py-1 rounded-sm border border-teal-800/10 bg-teal-800/3">
-                                                                                            <span className="text-xs google-sans-flex-400 tracking-tighter text-[#1f1f1f]/45">{sites.length > 1 ? "Sources" : "Source"}</span>
-                                                                                            <div className="flex items-center gap-x-0.2">
-                                                                                                {sites.map((c, ci) => (
-                                                                                                    <a key={ci} href={c.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={c.title || hostOf(c.url)} className="block transition-transform hover:scale-110">
-                                                                                                        <img src={faviconOf(c.url)} alt="" loading="lazy" className="w-3.5 h-3.5 rounded-full object-cover bg-white" />
-                                                                                                    </a>
-                                                                                                ))}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
-                                                                            )
-                                                                        })}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </motion.div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+            </aside>
+
+            {/* ============ MAIN ============ */}
+            <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+                {/* top bar */}
+                <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", position: "relative", zIndex: 5 }}>
+                    {!sidebarOpen && (
+                        <button onClick={() => setSidebarOpen(true)} aria-label="Expand sidebar" style={{ border: "1px solid var(--border)", background: "#fff", cursor: "pointer", color: "var(--green-800)", padding: 7, borderRadius: 9, display: "flex", boxShadow: "var(--shadow-sm)" }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" /><path d="M9 4v16" stroke="currentColor" strokeWidth="1.8" /></svg>
+                        </button>
+                    )}
+                    <Link href="/" style={{ display: "flex", alignItems: "center", gap: 7, border: "1px solid var(--border)", background: "#fff", borderRadius: 10, padding: "7px 13px", fontSize: 13, fontWeight: 700, color: "var(--green-800)", boxShadow: "var(--shadow-sm)" }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 11l9-8 9 8M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        Home
+                    </Link>
+                    <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+                        <AnimatePresence>
+                            {showDisconnected && (
+                                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--danger)", color: "#fff", borderRadius: 999, padding: "7px 16px", fontSize: 12.5, fontWeight: 700, boxShadow: "var(--shadow-md)" }}>
+                                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#fff", animation: "hoc-pulse 1.1s ease-in-out infinite" }} />
+                                    Connection lost — trying to reconnect…
                                 </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--border)", background: "#fff", borderRadius: 10, padding: "6px 12px", boxShadow: "var(--shadow-sm)" }}>
+                        <svg width="18" height="18" viewBox="-16 -16 32 32" aria-hidden="true"><path d="M0 -13 L11.3 -6.5 L11.3 6.5 L0 13 L-11.3 6.5 L-11.3 -6.5 Z" fill="none" stroke="var(--gold-500)" strokeWidth="2.8" strokeLinejoin="round" /><path d="M-5 0.5 L-1.3 4.6 L5.8 -4.5" fill="none" stroke="var(--green-800)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-900)" }}>Halal<span style={{ color: "var(--gold-600)" }}>One</span></div>
+                    </div>
+                </div>
+
+                {/* conversation / greeting */}
+                {historyLoading && !hasMessages ? (
+                    <div className="cscroll" style={{ flex: 1, overflowY: "auto", padding: "8px 20px 20px" }}>{messagesSkeleton}</div>
+                ) : !hasMessages && !loading ? (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", padding: 20 }}>
+                        <div aria-hidden="true" style={{ position: "absolute", width: 640, height: 640, borderRadius: "50%", background: "radial-gradient(circle at 50% 45%,color-mix(in srgb,var(--green-700) 20%,transparent),color-mix(in srgb,var(--gold-500) 12%,transparent) 42%,transparent 68%)", filter: "blur(18px)" }} />
+                        <div style={{ position: "relative", textAlign: "center" }}>
+                            <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-700)", lineHeight: 1.1 }}>Hello {firstName},</div>
+                            <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-900)", lineHeight: 1.15 }}>How can I assist you today?</div>
+                            <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 16, maxWidth: 440, lineHeight: 1.6, marginLeft: "auto", marginRight: "auto" }}>Ask about any product, dish, ingredient or E-number — I&apos;ll check its halal status and cite the sources.</div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="cscroll" style={{ flex: 1, overflowY: "auto", padding: "8px 20px 20px" }}>
+                        <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 22 }}>
+                            {messages.map((msg) => (
+                                msg.role === "user" ? (
+                                    <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                                        {(msg.imageDataUrl || msg.imageUrl) && (
+                                            <img src={msg.imageDataUrl || msg.imageUrl} alt="" style={{ width: 144, height: 144, borderRadius: 16, objectFit: "cover" }} />
+                                        )}
+                                        {msg.content && <UserBubble content={msg.content} />}
+                                    </div>
+                                ) : (
+                                    <div key={msg.id} style={{ alignSelf: "stretch", animation: "hoc-fade .3s ease both" }}>
+                                        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                                            <div style={{ flex: "0 0 auto", width: 32, height: 32, borderRadius: 9, background: "linear-gradient(150deg,#0F4B2E,#07351F)", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 2 }}>
+                                                <svg width="18" height="18" viewBox="-16 -16 32 32" aria-hidden="true"><path d="M0 -13 L11.3 -6.5 L11.3 6.5 L0 13 L-11.3 6.5 L-11.3 -6.5 Z" fill="none" stroke="var(--gold-500)" strokeWidth="2.8" strokeLinejoin="round" /><path d="M-5 0.5 L-1.3 4.6 L5.8 -4.5" fill="none" stroke="var(--cream-50)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                {msg.content && (
+                                                    <div style={{ fontSize: 14.5, lineHeight: 1.65, color: "var(--ink)" }}>
+                                                        <Markdown textContent={msg.content} theme="light" />
+                                                    </div>
+                                                )}
+                                                {msg.products && msg.products.length > 0 && (
+                                                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+                                                        {msg.products.map((product) => (
+                                                            <ProductCard key={product.canonical_id} product={product} onOpen={() => setSelectedProduct(product)} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
                             ))}
 
                             {loading && loadingIndicator}
 
-                            {/* Live web-search sources */}
-                            {loading && webSources.length > 0 && (
-                                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-y-2 rounded-xl p-3 border border-teal-800/8 bg-white">
-                                    <span className="text-xs google-sans-flex-500 text-[#1f1f1f]/50">Searching the web…</span>
-                                    {webSources.map((s, i) => (
-                                        <a key={s.url ?? i} href={s.url} target="_blank" rel="noopener noreferrer" className="flex flex-col gap-y-1 group">
-                                            <div className="flex items-center gap-x-2">
-                                                {s.favicon ? <img src={s.favicon} alt="" className="w-4 h-4 rounded-sm shrink-0 object-contain" /> : <span className="w-4 h-4 rounded-sm shrink-0 bg-teal-800/10" />}
-                                                <span className="text-xs google-sans-flex-500 truncate group-hover:underline text-[#1f1f1f]/70">{s.title || hostOf(s.url)}</span>
-                                            </div>
-                                            {s.highlights && s.highlights[0] && (
-                                                <p className="text-xs google-sans-flex-400 line-clamp-2 pl-6 text-[#1f1f1f]/40">{s.highlights[0]}</p>
-                                            )}
-                                        </a>
-                                    ))}
-                                </motion.div>
-                            )}
-
                             <div ref={messagesEndRef} />
                         </div>
                     </div>
+                )}
 
-                    {/* input pinned to bottom */}
-                    <div className="shrink-0 px-4 pt-3 pb-6 flex justify-center">
-                        <div className="w-[90%] md:w-[75%] lg:w-[35%]">
-                            {inputBox}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="w-full flex justify-center-safe pb-1">
-                <p className="google-sans-flex-400 text-[#1f1f1f]/60 text-sm">Halal One can make mistakes. Refer to full <span className="underline">guide</span></p>
-            </div>
+                {/* composer */}
+                <div style={{ flex: "0 0 auto", padding: "8px 20px 18px" }}>{composer}</div>
+            </main>
 
             {/* ---- modals + toast ---- */}
             <ProductDetailModal product={selectedProduct} onClose={() => setSelectedProduct(null)} />
@@ -1095,7 +909,6 @@ export default function Page() {
                 )}
             </AnimatePresence>
 
-            {/* Compaction: confirm modal (awaiting) and a slim banner (running). */}
             <AnimatePresence>
                 {compaction.phase === "awaiting" && (
                     <CompactionDialog
@@ -1111,7 +924,7 @@ export default function Page() {
 
             <AnimatePresence>
                 {compaction.phase === "running" && (
-                    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-70 px-4 py-2 rounded-lg bg-teal-800 text-white text-sm google-sans-flex-500 shadow-lg max-w-[90%] text-center">
+                    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 70, padding: "8px 16px", borderRadius: 10, background: "var(--green-800)", color: "#fff", fontSize: 13, fontWeight: 700, boxShadow: "var(--shadow-md)", maxWidth: "90%", textAlign: "center" }}>
                         {compaction.message ?? "History is being compacted, please wait…"}
                     </motion.div>
                 )}
@@ -1119,7 +932,7 @@ export default function Page() {
 
             <AnimatePresence>
                 {toast && (
-                    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-70 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm google-sans-flex-500 shadow-lg max-w-[90%] text-center">
+                    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 70, padding: "8px 16px", borderRadius: 10, background: "var(--gold-600)", color: "#fff", fontSize: 13, fontWeight: 700, boxShadow: "var(--shadow-md)", maxWidth: "90%", textAlign: "center" }}>
                         {toast}
                     </motion.div>
                 )}
@@ -1129,56 +942,171 @@ export default function Page() {
 }
 
 const promptChips = [
-    {
-        id: "1",
-        icon: <CookieIcon className={`fill-current text-teal-800`} />,
-        text: "Are Oreo cookies halal?",
-        description: "Check the status of this popular cream-filled chocolate biscuit."
-    },
-    {
-        id: "2",
-        icon: <StockPotIcon className={`fill-current text-teal-800`} />,
-        text: "Is Chicken broth halal?",
-        description: "Find out if ready-made or restaurant chicken stock is permissible."
-    },
-    {
-        id: "3",
-        icon: <CoffeeIcon className={`fill-current text-teal-800`} />,
-        text: "Is Espresso coffee halal?",
-        description: "Learn about the permissibility of coffee and caffeine drinks."
-    },
-    {
-        id: "4",
-        icon: <StockPotIcon className={`fill-current text-teal-800`} />,
-        text: "Is Daal Makhni halal?",
-        description: "Learn about the permissibility of coffee and caffeine drinks."
-    }
-];
+    { id: "1", icon: <CookieIcon className="fill-current w-4 h-4" />, text: "Are Oreo cookies halal?" },
+    { id: "2", icon: <StockPotIcon className="fill-current w-4 h-4" />, text: "Is Chicken broth halal?" },
+    { id: "3", icon: <CoffeeIcon className="fill-current w-4 h-4" />, text: "Is Espresso coffee halal?" },
+    { id: "4", icon: <StockPotIcon className="fill-current w-4 h-4" />, text: "Is Daal Makhni halal?" },
+]
 
+// Sidebar avatar. Uses an <img> with referrerPolicy="no-referrer" — Google
+// (lh3.googleusercontent.com) avatars often 403 when a referrer is sent, which a
+// CSS background-image can't suppress. Falls back to the initials on empty URL
+// or a load error.
+function SidebarAvatar({ url, initials }: { url: string; initials: string }) {
+    const [failed, setFailed] = useState(false)
+    const box: CSSProperties = { flex: "0 0 auto", width: 34, height: 34, borderRadius: 10 }
+    if (url && !failed) {
+        return (
+            <img
+                src={url}
+                alt=""
+                referrerPolicy="no-referrer"
+                onError={() => setFailed(true)}
+                style={{ ...box, objectFit: "cover" }}
+            />
+        )
+    }
+    return (
+        <div style={{ ...box, background: "var(--gold-500)", color: "var(--green-900)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14 }}>{initials}</div>
+    )
+}
 
 function UserBubble({ content }: { content: string }) {
-    const ref = useRef<HTMLDivElement>(null);
-    const [multiLine, setMultiLine] = useState(false);
+    const ref = useRef<HTMLDivElement>(null)
+    const [multiLine, setMultiLine] = useState(false)
 
     useLayoutEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        // line-height ≈ text-[19px] * leading-snug(1.375) ≈ 26px
-        // 2 lines + py-2.5 (20px) ≈ 72px. Anything taller = 3+ lines.
-        const check = () => setMultiLine(el.scrollHeight > 48);
-        check();
-        const ro = new ResizeObserver(check);
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [content]);
+        const el = ref.current
+        if (!el) return
+        const check = () => setMultiLine(el.scrollHeight > 48)
+        check()
+        const ro = new ResizeObserver(check)
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [content])
 
     return (
         <div
             ref={ref}
-            className={`px-6 py-2.5 leading-snug whitespace-pre-wrap wrap-break-words google-sans-flex-400 bg-teal-800/5 text-[#1f1f1f] text-[19px] ${multiLine ? "rounded-2xl rounded-br-sm" : "rounded-full"
-                }`}
+            style={{
+                maxWidth: "80%",
+                background: "color-mix(in srgb,var(--green-700) 9%,transparent)",
+                border: "1px solid color-mix(in srgb,var(--green-700) 20%,transparent)",
+                color: "var(--green-900)",
+                borderRadius: multiLine ? "16px 16px 4px 16px" : 999,
+                padding: multiLine ? "12px 16px" : "10px 18px",
+                fontSize: 14.5,
+                lineHeight: 1.55,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "break-word",
+                animation: "hoc-fade .25s ease both",
+            }}
         >
             {content}
         </div>
-    );
+    )
+}
+
+// Inline product result card (HalalOne styling). Preserves the unverified /
+// grounding-citation behaviour from the original; click opens the full modal.
+// Status tag styling (rail + top-right pill), covering the four halal states.
+// Web-sourced results carry a real status, so the pill always shows it — the
+// unverified/web provenance is conveyed separately by the grounding line below.
+const statusStyle = (raw: string) => {
+    // Collapse repeated letters so spelling variants normalize to one form
+    // (e.g. "haraam" -> "haram", "halaal" -> "halal", "mushbooh" -> "mushboh").
+    const s = (raw ?? "").toLowerCase().replace(/(.)\1+/g, "$1")
+    if (s.includes("halal")) return { label: "Halal", rail: "var(--green-700)", fg: "var(--green-700)", dot: "var(--green-700)", bg: "color-mix(in srgb,var(--green-700) 12%,transparent)", border: "color-mix(in srgb,var(--green-700) 30%,transparent)" }
+    if (s.includes("haram")) return { label: "Haram", rail: "var(--danger)", fg: "var(--danger)", dot: "var(--danger)", bg: "color-mix(in srgb,var(--danger) 12%,transparent)", border: "color-mix(in srgb,var(--danger) 30%,transparent)" }
+    if (s.includes("mushbo") || s.includes("doubt") || s.includes("depend")) return { label: "Mushbooh", rail: "var(--gold-500)", fg: "var(--gold-600)", dot: "var(--gold-500)", bg: "color-mix(in srgb,var(--gold-500) 16%,transparent)", border: "color-mix(in srgb,var(--gold-500) 40%,transparent)" }
+    return { label: "Unknown", rail: "var(--muted)", fg: "var(--muted)", dot: "var(--muted)", bg: "color-mix(in srgb,var(--muted) 12%,transparent)", border: "color-mix(in srgb,var(--muted) 30%,transparent)" }
+}
+
+function ProductCard({ product, onOpen }: { product: Product; onOpen: () => void }) {
+    const status = product.halal_status ?? ""
+    const st = statusStyle(status)
+    const cats = [product.category_l1, product.category_l2].filter(Boolean) as string[]
+    return (
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen() } }}
+            style={{ background: "#fff", border: "1px solid var(--border)", borderLeftWidth: 4, borderLeftColor: st.rail, borderRadius: 14, padding: "16px 18px", boxShadow: "var(--shadow-sm)", cursor: "pointer" }}
+        >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "var(--green-900)", lineHeight: 1.3, textTransform: "capitalize" }}>{product.norm_name}</div>
+                {/* Halal-status tag — shown for every result (verified or web-sourced). */}
+                <span style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: st.bg, color: st.fg, border: `1px solid ${st.border}` }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: st.dot }} />{st.label}
+                </span>
+            </div>
+
+            {cats.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                    {cats.map((c, i) => (
+                        <span key={i} style={{ padding: "3px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--cream-100)", color: "var(--muted)", border: "1px solid var(--border)" }}>{c}</span>
+                    ))}
+                </div>
+            )}
+
+            {product.companies && product.companies.length > 0 && (
+                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.5 }}>
+                    {product.companies.map(c => c.charAt(0).toUpperCase() + c.slice(1).toLowerCase()).join(" · ")}
+                </div>
+            )}
+
+            {product.cert_bodies && product.cert_bodies.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 10 }}>
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>Certified by</span>
+                    {product.cert_bodies.map((b, i) => (
+                        <span key={i} style={{ fontSize: 11, fontWeight: 700, color: "var(--green-700)", background: "color-mix(in srgb,var(--green-700) 8%,transparent)", border: "1px solid color-mix(in srgb,var(--green-700) 22%,transparent)", padding: "2px 9px", borderRadius: 7 }}>{b}</span>
+                    ))}
+                </div>
+            )}
+
+            {product.verified !== false && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--cream-100)", fontSize: 11, fontWeight: 700, color: "var(--green-700)" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" /></svg>
+                    Verified · Sourced from database
+                </div>
+            )}
+
+            {product.verified === false && product.grounding && product.grounding.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--cream-100)" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--gold-600)" }}>Unverified · sourced from web</span>
+                    {product.grounding.map((g, gi) => {
+                        const value = formatFieldValue(product[g.field as keyof Product])
+                        if (!value) return null
+                        const sites = Array.from(new Map(g.citations.map(c => [hostOf(c.url), c])).values())
+                        return (
+                            <div key={gi} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                                <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, minWidth: 0 }}>
+                                    <span style={{ color: "var(--muted)" }}>{FIELD_LABELS[g.field] ?? g.field}: </span>
+                                    <span style={{ color: "var(--green-900)", fontWeight: 700 }}>{value}</span>
+                                </p>
+                                {sites.length > 0 && (
+                                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flex: "0 0 auto", padding: "3px 9px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--cream-100)" }}>
+                                        <span style={{ fontSize: 11, color: "var(--muted)" }}>{sites.length > 1 ? "Sources" : "Source"}</span>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                                            {sites.map((c, ci) => (
+                                                <a key={ci} href={c.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={c.title || hostOf(c.url)} style={{ display: "block" }}>
+                                                    <img src={faviconOf(c.url)} alt="" loading="lazy" style={{ width: 14, height: 14, borderRadius: "50%", objectFit: "cover", background: "#fff" }} />
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 11.5, fontWeight: 700, color: "var(--gold-600)" }}>
+                Expand full product card
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </div>
+        </div>
+    )
 }

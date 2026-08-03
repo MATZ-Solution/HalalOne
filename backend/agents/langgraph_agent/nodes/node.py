@@ -116,7 +116,7 @@ _FALLBACK_N = 3
 
 def _compact_candidate(p: dict) -> str:
     """One compact, LLM-friendly block per product: an id line + present fields."""
-    lines = [f"[id: {p.get('canonical_id')}]"]
+    lines = [f"id: {p.get('canonical_id')}"]
     for field in _CANDIDATE_FIELDS:
         value = p.get(field)
         if not value:
@@ -146,13 +146,8 @@ def response_node(state: SearchAgentState) -> dict:
     candidates = "\n\n".join(_compact_candidate(p) for p in all_results) or "No products found."
 
     structured_llm = final_extracter_llm.with_structured_output(SelectedProducts, method="json_schema")
-    prompt = ChatPromptTemplate.from_template(FINAL_RESPONSE_PROMPT)
-    chain = prompt | structured_llm
-    result = chain.invoke({
-        "halal_search_results": candidates,
-        "conversation_history": state["messages"],
-    })
-
+    result = structured_llm.invoke([SystemMessage(FINAL_RESPONSE_PROMPT), *state["messages"], HumanMessage(f"halal_search_results:\n {candidates}")])
+    # result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state['messages'])
     # Resolve ids -> products deterministically. Unknown ids (hallucinated) are
     # skipped; duplicates de-duped; order follows the LLM's relevance order.
     by_id = {p.get("canonical_id"): p for p in all_results if p.get("canonical_id")}

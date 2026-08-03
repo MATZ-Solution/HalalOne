@@ -28,6 +28,32 @@ _HEARTBEAT_INTERVAL = 100    # seconds; comfortably < INFLIGHT_TTL to survive a 
 _RENEW_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end"
 _RELEASE_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
 
+# Retry policy for the data-cache ops below (history / summary / compaction /
+# session-known). Mirrors chat_store's DB retry so a transient Valkey blip is
+# smoothed over before it can leave the cache inconsistent.
+CACHE_MAX_RETRIES = 3
+CACHE_BASE_DELAY = 0.1  # seconds; doubles each attempt (0.1s, 0.2s)
+
+
+async def _with_retry(op: str, fn):
+    """Run a Valkey call with exponential backoff. `fn` receives the client and
+    returns the awaitable for one attempt. Re-raises the last exception if every
+    attempt fails, so each caller's own try/except still applies its fail-open
+    default — retry sits *underneath* the existing fail-open contract."""
+    delay = CACHE_BASE_DELAY
+    last_exc = None
+    for attempt in range(1, CACHE_MAX_RETRIES + 1):
+        try:
+            vk = await get_valkey()
+            return await fn(vk)
+        except Exception as e:
+            last_exc = e
+            log.warning("valkey.op.retry", op=op, attempt=attempt, max_retries=CACHE_MAX_RETRIES, error=str(e), error_type=type(e).__name__)
+            if attempt < CACHE_MAX_RETRIES:
+                await asyncio.sleep(delay)
+                delay *= 2
+    raise last_exc
+
 
 def _inflight_key(session_id: str) -> str:
     return f"inflight:{session_id}"
@@ -115,41 +141,50 @@ async def load_history(session_id: str) -> list[dict] | None:
     """Return the cached history as [{role, content}], or None on a miss (so the
     caller rebuilds from the DB)."""
     try:
-        vk = await get_valkey()
-        raw = await vk.lrange(_history_key(session_id), 0, -1)
+        raw = await _with_retry("load_history", lambda vk: vk.lrange(_history_key(session_id), 0, -1))
         return [json.loads(x) for x in raw] if raw else None
     except Exception as e:
         log.warning("valkey.load_history.failed", error=str(e), error_type=type(e).__name__)
         return None
 
 
-async def seed_history(session_id: str, messages: list[dict]) -> None:
-    """Replace the cached history (used after a DB rebuild)."""
-    try:
-        vk = await get_valkey()
-        key = _history_key(session_id)
+async def seed_history(session_id: str, messages: list[dict]) -> bool:
+    """Replace the cached history (used after a DB rebuild). Returns True on
+    success, False if the write failed (so a caller like compact_session can
+    invalidate the cache and let the next turn rebuild from the DB)."""
+    key = _history_key(session_id)
+
+    async def _run(vk):
         async with vk.pipeline(transaction=True) as pipe:
             pipe.delete(key)
             if messages:
                 pipe.rpush(key, *[json.dumps(m) for m in messages])
                 pipe.expire(key, _HISTORY_TTL)
-            await pipe.execute()
+            return await pipe.execute()
+
+    try:
+        await _with_retry("seed_history", _run)
+        return True
     except Exception as e:
         log.warning("valkey.seed_history.failed", error=str(e), error_type=type(e).__name__)
+        return False
 
 
 async def append_history(session_id: str, role: str, content: str, message_id: str | None = None) -> None:
     """Append one message and refresh the TTL. `message_id` is the DB row id, kept
     on the entry so a fold knows exactly which message ids it has absorbed; the
     summary-key TTL is refreshed alongside so the two never drift apart."""
-    try:
-        vk = await get_valkey()
-        key = _history_key(session_id)
+    key = _history_key(session_id)
+
+    async def _run(vk):
         async with vk.pipeline(transaction=True) as pipe:
             pipe.rpush(key, json.dumps({"id": message_id, "role": role, "content": content}))
             pipe.expire(key, _HISTORY_TTL)
             pipe.expire(_summary_key(session_id), _HISTORY_TTL)
-            await pipe.execute()
+            return await pipe.execute()
+
+    try:
+        await _with_retry("append_history", _run)
     except Exception as e:
         log.warning("valkey.append_history.failed", error=str(e), error_type=type(e).__name__)
 
@@ -157,8 +192,7 @@ async def append_history(session_id: str, role: str, content: str, message_id: s
 async def clear_history(session_id: str) -> None:
     """Drop the cached history (e.g. on a brand-new session)."""
     try:
-        vk = await get_valkey()
-        await vk.delete(_history_key(session_id))
+        await _with_retry("clear_history", lambda vk: vk.delete(_history_key(session_id)))
     except Exception as e:
         log.warning("valkey.clear_history.failed", error=str(e), error_type=type(e).__name__)
 
@@ -177,32 +211,30 @@ def _summary_key(session_id: str) -> str:
 async def load_summary(session_id: str) -> dict | None:
     """Return {summary, message_ids} for the session, or None on a miss."""
     try:
-        vk = await get_valkey()
-        raw = await vk.get(_summary_key(session_id))
+        raw = await _with_retry("load_summary", lambda vk: vk.get(_summary_key(session_id)))
         return json.loads(raw) if raw else None
     except Exception as e:
         log.warning("valkey.load_summary.failed", error=str(e), error_type=type(e).__name__)
         return None
 
 
-async def save_summary(session_id: str, summary: str, message_ids: list[str]) -> None:
-    """Replace the cached summary and its covered message-id set."""
+async def save_summary(session_id: str, summary: str, message_ids: list[str]) -> bool:
+    """Replace the cached summary and its covered message-id set. Returns True on
+    success, False if the write failed (so compact_session can invalidate the
+    cache and let the next turn rebuild from the DB)."""
+    payload = json.dumps({"summary": summary, "message_ids": message_ids})
     try:
-        vk = await get_valkey()
-        await vk.set(
-            _summary_key(session_id),
-            json.dumps({"summary": summary, "message_ids": message_ids}),
-            ex=_HISTORY_TTL,
-        )
+        await _with_retry("save_summary", lambda vk: vk.set(_summary_key(session_id), payload, ex=_HISTORY_TTL))
+        return True
     except Exception as e:
         log.warning("valkey.save_summary.failed", error=str(e), error_type=type(e).__name__)
+        return False
 
 
 async def clear_summary(session_id: str) -> None:
     """Drop the cached summary (e.g. on session delete)."""
     try:
-        vk = await get_valkey()
-        await vk.delete(_summary_key(session_id))
+        await _with_retry("clear_summary", lambda vk: vk.delete(_summary_key(session_id)))
     except Exception as e:
         log.warning("valkey.clear_summary.failed", error=str(e), error_type=type(e).__name__)
 
@@ -227,8 +259,7 @@ async def load_compaction(session_id: str) -> dict:
     """Return the compaction state, defaulting to idle on a miss/error so callers
     can treat 'no state' and 'idle' identically."""
     try:
-        vk = await get_valkey()
-        raw = await vk.get(_compaction_key(session_id))
+        raw = await _with_retry("load_compaction", lambda vk: vk.get(_compaction_key(session_id)))
         return json.loads(raw) if raw else dict(IDLE_COMPACTION)
     except Exception as e:
         log.warning("valkey.load_compaction.failed", error=str(e), error_type=type(e).__name__)
@@ -237,9 +268,9 @@ async def load_compaction(session_id: str) -> dict:
 
 async def save_compaction(session_id: str, state: dict) -> None:
     """Persist the compaction state."""
+    payload = json.dumps(state)
     try:
-        vk = await get_valkey()
-        await vk.set(_compaction_key(session_id), json.dumps(state), ex=_COMPACTION_TTL)
+        await _with_retry("save_compaction", lambda vk: vk.set(_compaction_key(session_id), payload, ex=_COMPACTION_TTL))
     except Exception as e:
         log.warning("valkey.save_compaction.failed", error=str(e), error_type=type(e).__name__)
 
@@ -247,8 +278,7 @@ async def save_compaction(session_id: str, state: dict) -> None:
 async def clear_compaction(session_id: str) -> None:
     """Reset compaction state to idle (delete the key)."""
     try:
-        vk = await get_valkey()
-        await vk.delete(_compaction_key(session_id))
+        await _with_retry("clear_compaction", lambda vk: vk.delete(_compaction_key(session_id)))
     except Exception as e:
         log.warning("valkey.clear_compaction.failed", error=str(e), error_type=type(e).__name__)
 
@@ -268,8 +298,7 @@ def _session_known_key(session_id: str) -> str:
 async def is_session_known(session_id: str) -> bool:
     """Whether we've already confirmed this session exists (cache only)."""
     try:
-        vk = await get_valkey()
-        return bool(await vk.exists(_session_known_key(session_id)))
+        return bool(await _with_retry("is_session_known", lambda vk: vk.exists(_session_known_key(session_id))))
     except Exception as e:
         log.warning("valkey.is_session_known.failed", error=str(e), error_type=type(e).__name__)
         return False
@@ -278,8 +307,7 @@ async def is_session_known(session_id: str) -> bool:
 async def mark_session_known(session_id: str) -> None:
     """Record that this session exists so later turns can skip the DB check."""
     try:
-        vk = await get_valkey()
-        await vk.set(_session_known_key(session_id), "1", ex=_SESSION_KNOWN_TTL)
+        await _with_retry("mark_session_known", lambda vk: vk.set(_session_known_key(session_id), "1", ex=_SESSION_KNOWN_TTL))
     except Exception as e:
         log.warning("valkey.mark_session_known.failed", error=str(e), error_type=type(e).__name__)
 
@@ -287,7 +315,6 @@ async def mark_session_known(session_id: str) -> None:
 async def clear_session_known(session_id: str) -> None:
     """Drop the existence flag (e.g. on session delete)."""
     try:
-        vk = await get_valkey()
-        await vk.delete(_session_known_key(session_id))
+        await _with_retry("clear_session_known", lambda vk: vk.delete(_session_known_key(session_id)))
     except Exception as e:
         log.warning("valkey.clear_session_known.failed", error=str(e), error_type=type(e).__name__)

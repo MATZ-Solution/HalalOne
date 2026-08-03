@@ -103,16 +103,9 @@ export default function Landing({ profile = null }: { profile?: Profile | null }
               <a className="hl-navlink" href="#trust">Trust</a>
             </div>
             <div className="hl-nav-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-              <button className="hl-hide-sm" aria-label="Search" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 38, height: 38, borderRadius: "var(--radius-pill)", border: "1px solid var(--border-subtle)", background: "var(--white)", cursor: "pointer" }}>
-                <Icon name="search" size={18} color="var(--charcoal-600)" />
-              </button>
-              <button className="hl-hide-sm" aria-label="Language" style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 38, padding: "0 12px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border-subtle)", background: "var(--white)", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 700, color: "var(--charcoal-600)" }}>
-                <Icon name="globe" size={16} color="var(--charcoal-600)" />
-                EN
-              </button>
               {profile ? (
                 <>
-                  <Button size="sm" href={APP}>Open dashboard</Button>
+                  <Button size="sm" href={APP}>Start Chat</Button>
                   <Link href={APP} aria-label="Open the app" style={{ display: "inline-flex", alignItems: "center", gap: 9 }}>
                     {profile.avatarUrl ? (
                       <span style={{ width: 34, height: 34, borderRadius: "50%", backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: "cover", backgroundPosition: "center", border: "1px solid var(--border-subtle)", flex: "0 0 auto" }} />
