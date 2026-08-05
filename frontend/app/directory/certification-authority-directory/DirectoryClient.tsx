@@ -130,7 +130,7 @@ export default function DirectoryClient() {
             <Divider />
             <Stat value={String(statGov)} label="Government bodies" />
             <Divider />
-            <Stat value="500K+" label="Certified records" />
+            <Stat value="200K+" label="Certified records" />
           </div>
         </div>
       </section>

@@ -2,9 +2,9 @@
 // export's data script so the marketing copy and demo data stay in one place.
 
 export const heroStats = [
-  { value: "2.4M", label: "Products verified" },
-  { value: "57", label: "Countries" },
-  { value: "180+", label: "Authorities" },
+  { value: "200K+", label: "Products verified" },
+  { value: "50+", label: "Countries" },
+  { value: "20+", label: "Authorities" },
 ]
 
 export const certAuthorities = [
@@ -20,16 +20,17 @@ export const suggestedPrompts = [
 ]
 
 export const aiCapabilities = [
-  { icon: "shield-check", title: "Product verification", desc: "Confirms certificate validity and traceability in real time." },
-  { icon: "flask-conical", title: "Ingredient intelligence", desc: "Decodes E-numbers and additives, flagging source-dependent items." },
-  { icon: "quote", title: "Cited explanations", desc: "Every answer links back to standards and repository records." },
+  { icon: "badge-check", title: "Instant halal verdict", desc: "A clear Halal, Haram, Mushbooh or Unknown status for any product, dish or E-number." },
+  { icon: "flask-conical", title: "Ingredient & E-number lookup", desc: "Decodes additives like E471 with their source-dependent halal caveats." },
+  { icon: "globe", title: "Cited web sources", desc: "For products beyond the database, it searches the web and links every source behind the answer." },
 ]
 
+// Real product-card shape — mirrors the chat app's product records so the
+// landing cards render identically to what the assistant returns.
 export const products = [
-  { brand: "Nestlé", name: "MILO Activ-Go", country: "Malaysia", authority: "JAKIM", confidence: "98%", badge: "verified", statusLabel: "Verified", icon: "cup-soda", summary: "All 14 ingredients cross-referenced; certificate active and traceable to source." },
-  { brand: "Al Islami", name: "Beef Burgers", country: "UAE", authority: "ESMA", confidence: "96%", badge: "verified", statusLabel: "Verified", icon: "beef", summary: "Slaughter and processing certified; supply chain fully documented." },
-  { brand: "Wall's", name: "Vanilla Ice Cream", country: "Indonesia", authority: "BPJPH", confidence: "92%", badge: "verified", statusLabel: "Verified", icon: "ice-cream", summary: "Emulsifiers confirmed plant-derived; certificate valid through 2026." },
-  { brand: "Generic import", name: "Fruit Gummies", country: "Germany", authority: "None on file", confidence: "41%", badge: "warning", statusLabel: "Review", icon: "candy", summary: "Porcine-derived gelatin detected; no active halal certificate on record." },
+  { norm_name: "milo activ-go", halal_status: "Halal", category_l1: "Beverage", category_l2: "Malted Drink", companies: ["Nestlé"], cert_bodies: ["JAKIM"] },
+  { norm_name: "al islami beef burgers", halal_status: "Halal", category_l1: "Meat & Poultry", category_l2: "Frozen", companies: ["Al Islami Foods"], cert_bodies: ["ESMA"] },
+  { norm_name: "e471 mono- and diglycerides of fatty acids", halal_status: "Halal", category_l1: "Additive", category_l2: "Emulsifier", companies: [], cert_bodies: ["HFCI India"] },
 ] as const
 
 export const repoFilters = ["Certification authority", "Country", "Category", "Manufacturer", "Status"]
@@ -68,10 +69,10 @@ export const mobileFeatures = [
 ]
 
 export const kpis = [
-  { label: "Products verified", value: "2.4M", delta: "+18% YoY" },
-  { label: "Countries covered", value: "57", delta: "+6 this year" },
-  { label: "Certification authorities", value: "180+", delta: "+24 new" },
-  { label: "Ingredients indexed", value: "48K", delta: "+12% QoQ" },
+  { label: "Products verified", value: "200K", delta: "+18% YoY" },
+  { label: "Countries covered", value: "50+", delta: "+6 this year" },
+  { label: "Certification authorities", value: "20+", delta: "+24 new" },
+  { label: "Ingredients indexed", value: "150+", delta: "+12% QoQ" },
 ]
 
 export const growthBars = [
@@ -100,6 +101,6 @@ export const socials = ["linkedin", "twitter", "youtube", "globe"]
 export const footerCols = [
   { title: "Platform", links: ["AI Assistant", "Repository", "Business Directory", "OCR Scanner", "Mobile app"] },
   { title: "Resources", links: ["Standards", "Certification lookup", "News & alerts", "API"] },
-  { title: "Research", links: ["Datasets", "Knowledge graph", "Market intelligence", "Reports"] },
+  { title: "Research", links: ["Ingredient database", "Market intelligence", "Knowledge graph", "Reports"] },
   { title: "Institution", links: ["About ICCD", "Partners", "Contact", "Careers"] },
 ]

@@ -19,7 +19,7 @@ classify_intent_schema = {
     "type": "object",
     "description": "Intent classifier",
     "properties": {
-        "intent": {
+        "classification": {
             "type": "string",
             "description": "The intent classification of the user. `search` or `direct`",
             "enum": ["search", "direct"]

@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from "framer-motion"
 
 import CoffeeIcon from "../../../icons/coffee_icon.svg"
 import CookieIcon from "../../../icons/cookie_icon.svg"
-import StockPotIcon from "../../../icons/stockpot_icon.svg"
+import FlaskIcon from "../../../icons/flask_icon.svg"
+import DessertIcon from "../../../icons/dessert_icon.svg"
 
 import { createClient } from "@/utils/supabase/client"
 import useWebsocket from "@/hooks/useWebsocket"
@@ -236,7 +237,6 @@ const SCOPED_CSS = `
 .hochat-root .cscroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--green-800) 20%,transparent);border-radius:8px;}
 .hochat-root .cscroll-d::-webkit-scrollbar{width:8px;}
 .hochat-root .cscroll-d::-webkit-scrollbar-thumb{background:rgba(251,250,246,.18);border-radius:8px;}
-.hochat-root #chat-input:empty:before{content:attr(data-placeholder);color:var(--muted);pointer-events:none;}
 @keyframes hoc-fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
 @keyframes hoc-blink{0%,80%,100%{opacity:.25;transform:translateY(0);}40%{opacity:1;transform:translateY(-3px);}}
 @keyframes hoc-pulse{0%,100%{opacity:.5;}50%{opacity:1;}}
@@ -277,7 +277,18 @@ export default function Page() {
     useEffect(() => { historyLoadingRef.current = historyLoading }, [historyLoading])
 
     // ---- sidebar ----
+    // Default OPEN on desktop, but on phones/tablets the sidebar is an overlay
+    // that must start CLOSED. isMobile drives both the default and whether the
+    // sidebar pushes the layout (desktop) or floats over it (mobile).
     const [sidebarOpen, setSidebarOpen] = useState<boolean>(true)
+    const [isMobile, setIsMobile] = useState<boolean>(false)
+    useEffect(() => {
+        const mq = window.matchMedia("(max-width: 768px)")
+        const apply = () => { setIsMobile(mq.matches); setSidebarOpen(!mq.matches) }
+        apply()                                   // set correct state on first arrival
+        mq.addEventListener("change", apply)      // re-apply when crossing the breakpoint
+        return () => mq.removeEventListener("change", apply)
+    }, [])
     const [, setIsTextPresentSessionSearch] = useState<boolean>(false)
     const [sessions, setSessions] = useState<Session[]>([])
     const [sessionQuery, setSessionQuery] = useState<string>("")
@@ -451,8 +462,11 @@ export default function Page() {
     }, [isConnected])
 
     // ---- session actions ----
-    const handleNewChat = () => { setHistoryLoading(false); setThreadId(crypto.randomUUID()); syncUrl(null) }
-    const handleSelectSession = (id: string) => { if (id === threadId) return; setHistoryLoading(true); setThreadId(id); syncUrl(id) }
+    // On mobile the sidebar is an overlay, so close it after an action that
+    // reveals the conversation.
+    const closeSidebarOnMobile = () => { if (isMobile) setSidebarOpen(false) }
+    const handleNewChat = () => { setHistoryLoading(false); setThreadId(crypto.randomUUID()); syncUrl(null); closeSidebarOnMobile() }
+    const handleSelectSession = (id: string) => { closeSidebarOnMobile(); if (id === threadId) return; setHistoryLoading(true); setThreadId(id); syncUrl(id) }
     const handleDeleteSession = (id: string) => { sendMessage(JSON.stringify({ type: "delete_session", session_id: id })); setConfirmDeleteId(null) }
     const handleSignOut = async () => { await supabase.auth.signOut(); router.push("/login"); router.refresh() }
 
@@ -554,17 +568,21 @@ export default function Page() {
                 >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" /><circle cx="8.5" cy="9.5" r="1.6" stroke="currentColor" strokeWidth="1.6" /><path d="m4 18 5-5 4 4 3-3 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
-                <div
-                    id="chat-input"
-                    ref={inputRef}
-                    contentEditable={isConnected && !compactionBlocking}
-                    data-placeholder="Is Haribo halal?"
-                    onInput={handleInputChange}
-                    onPaste={handlePaste}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend() } }}
-                    style={{ flex: 1, minWidth: 0, maxHeight: 120, overflowY: "auto", outline: "none", fontFamily: "var(--font)", fontSize: 15, color: "var(--green-900)", padding: "6px 0", lineHeight: 1.5 }}
-                    className="cscroll"
-                />
+                <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                    {!isTextPresent && (
+                        <span aria-hidden="true" style={{ position: "absolute", top: "6px", left: 0, pointerEvents: "none", fontSize: 15, lineHeight: 1.5, color: "var(--muted)" }}>Is Haribo halal?</span>
+                    )}
+                    <div
+                        id="chat-input"
+                        ref={inputRef}
+                        contentEditable={isConnected && !compactionBlocking}
+                        onInput={handleInputChange}
+                        onPaste={handlePaste}
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (canSend) handleSend() } }}
+                        style={{ maxHeight: 120, overflowY: "auto", outline: "none", fontFamily: "var(--font)", fontSize: 15, color: "var(--green-900)", padding: "6px 0", lineHeight: 1.5 }}
+                        className="cscroll"
+                    />
+                </div>
                 <button
                     type="button"
                     onClick={() => canSend && handleSend()}
@@ -711,8 +729,18 @@ export default function Page() {
         <div className="hochat-root" style={{ height: "100dvh", display: "flex", overflow: "hidden", background: "var(--cream-50)" }}>
             <style>{SCOPED_CSS}</style>
 
+            {/* Mobile-only backdrop: tap to close the overlay sidebar. */}
+            {isMobile && sidebarOpen && (
+                <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40, background: "rgba(7,53,31,.45)" }} />
+            )}
+
             {/* ============ SIDEBAR ============ */}
-            <aside className="cscroll-d" style={{ width: sidebarOpen ? 280 : 0, flex: "0 0 auto", background: "linear-gradient(180deg,#0F4B2E,#07351F)", color: "var(--cream-50)", display: "flex", flexDirection: "column", transition: "width .22s ease", overflow: "hidden", position: "relative" }}>
+            <aside
+                className="cscroll-d"
+                style={isMobile
+                    ? { position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 50, width: 280, flex: "0 0 auto", background: "linear-gradient(180deg,#0F4B2E,#07351F)", color: "var(--cream-50)", display: "flex", flexDirection: "column", overflow: "hidden", transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)", transition: "transform .22s ease", boxShadow: sidebarOpen ? "var(--shadow-md)" : "none" }
+                    : { width: sidebarOpen ? 280 : 0, flex: "0 0 auto", background: "linear-gradient(180deg,#0F4B2E,#07351F)", color: "var(--cream-50)", display: "flex", flexDirection: "column", transition: "width .22s ease", overflow: "hidden", position: "relative" }}
+            >
                 <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='56' height='56' viewBox='0 0 56 56' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M28 3L50 28L28 53L6 28Z' fill='none' stroke='rgba(251,250,246,0.04)' stroke-width='1'/%3E%3C/svg%3E\")", backgroundSize: "56px", pointerEvents: "none" }} />
                 <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", width: 280 }}>
                     {/* brand row */}
@@ -842,7 +870,7 @@ export default function Page() {
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", padding: 20 }}>
                         <div aria-hidden="true" style={{ position: "absolute", width: 640, height: 640, borderRadius: "50%", background: "radial-gradient(circle at 50% 45%,color-mix(in srgb,var(--green-700) 20%,transparent),color-mix(in srgb,var(--gold-500) 12%,transparent) 42%,transparent 68%)", filter: "blur(18px)" }} />
                         <div style={{ position: "relative", textAlign: "center" }}>
-                            <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-700)", lineHeight: 1.1 }}>Hello {firstName},</div>
+                            <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-700)", lineHeight: 1.1 }}>Salam {firstName},</div>
                             <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-900)", lineHeight: 1.15 }}>How can I assist you today?</div>
                             <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 16, maxWidth: 440, lineHeight: 1.6, marginLeft: "auto", marginRight: "auto" }}>Ask about any product, dish, ingredient or E-number — I&apos;ll check its halal status and cite the sources.</div>
                         </div>
@@ -942,10 +970,10 @@ export default function Page() {
 }
 
 const promptChips = [
-    { id: "1", icon: <CookieIcon className="fill-current w-4 h-4" />, text: "Are Oreo cookies halal?" },
-    { id: "2", icon: <StockPotIcon className="fill-current w-4 h-4" />, text: "Is Chicken broth halal?" },
-    { id: "3", icon: <CoffeeIcon className="fill-current w-4 h-4" />, text: "Is Espresso coffee halal?" },
-    { id: "4", icon: <StockPotIcon className="fill-current w-4 h-4" />, text: "Is Daal Makhni halal?" },
+    { id: "1", icon: <FlaskIcon className="fill-current w-4 h-4" />, text: "Is E120 halal?" },
+    { id: "2", icon: <CookieIcon className="fill-current w-4 h-4" />, text: "What is the halal status of haribo?" },
+    { id: "3", icon: <DessertIcon className="fill-current w-4 h-4" />, text: "Is creme brule halal?" },
+    { id: "4", icon: <CoffeeIcon className="fill-current w-4 h-4" />, text: "Is Barzula Turkish coffee halal?" },
 ]
 
 // Sidebar avatar. Uses an <img> with referrerPolicy="no-referrer" — Google
@@ -1003,6 +1031,88 @@ function UserBubble({ content }: { content: string }) {
             }}
         >
             {content}
+        </div>
+    )
+}
+
+// Sources pill for a grounded field: shows the favicons; clicking it opens a
+// popover listing every source as a normal link (each opens on its own click, so
+// no popup blocker is triggered). Clicking a favicon opens that one source too.
+// `description` is optional: the backend grounding citations currently carry
+// only url + title, so it renders only if/when the backend starts sending one.
+type Citation = { url: string; title?: string; description?: string }
+function SourcesPill({ sites }: { sites: Citation[] }) {
+    const [open, setOpen] = useState(false)
+    const ref = useRef<HTMLDivElement>(null)
+    // Small delay on close so moving the pointer across the gap into the popover
+    // doesn't dismiss it.
+    const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const cancelClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null } }
+    const scheduleClose = () => { cancelClose(); closeTimer.current = setTimeout(() => setOpen(false), 140) }
+
+    useEffect(() => () => cancelClose(), [])
+
+    // Touch/outside-click fallback (no hover on touch devices).
+    useEffect(() => {
+        if (!open) return
+        const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false) }
+        document.addEventListener("mousedown", onDown)
+        document.addEventListener("keydown", onKey)
+        return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey) }
+    }, [open])
+
+    return (
+        <div
+            ref={ref}
+            style={{ position: "relative", flex: "0 0 auto" }}
+            onMouseEnter={() => { cancelClose(); setOpen(true) }}
+            onMouseLeave={scheduleClose}
+        >
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
+                title={sites.length > 1 ? `View ${sites.length} sources` : "View source"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "3px 9px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--cream-100)", cursor: "pointer", fontFamily: "inherit" }}
+            >
+                <span style={{ fontSize: 11, color: "var(--muted)" }}>{sites.length > 1 ? "Sources" : "Source"}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    {sites.map((c, ci) => (
+                        <img key={ci} src={faviconOf(c.url)} alt="" loading="lazy" style={{ width: 14, height: 14, borderRadius: "50%", objectFit: "cover", background: "#fff" }} />
+                    ))}
+                </div>
+            </button>
+
+            {open && (
+                <div
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseEnter={cancelClose}
+                    onMouseLeave={scheduleClose}
+                    style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, minWidth: 220, maxWidth: 300, background: "#fff", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow-md)", overflow: "hidden", padding: 4 }}
+                >
+                    {sites.map((c, ci) => (
+                        <a
+                            key={ci}
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setOpen(false)}
+                            title={c.title || c.url}
+                            style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px", borderRadius: 7, textDecoration: "none" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--cream-100)" }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+                        >
+                            <img src={faviconOf(c.url)} alt="" loading="lazy" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", background: "#fff", flex: "0 0 auto", marginTop: 1 }} />
+                            <span style={{ minWidth: 0 }}>
+                                <span style={{ display: "block", fontSize: 12, color: "var(--green-900)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || hostOf(c.url)}</span>
+                                {c.description && (
+                                    <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 11, lineHeight: 1.4, color: "var(--muted)", marginTop: 2 }}>{c.description}</span>
+                                )}
+                            </span>
+                        </a>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }
@@ -1085,18 +1195,7 @@ function ProductCard({ product, onOpen }: { product: Product; onOpen: () => void
                                     <span style={{ color: "var(--muted)" }}>{FIELD_LABELS[g.field] ?? g.field}: </span>
                                     <span style={{ color: "var(--green-900)", fontWeight: 700 }}>{value}</span>
                                 </p>
-                                {sites.length > 0 && (
-                                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flex: "0 0 auto", padding: "3px 9px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--cream-100)" }}>
-                                        <span style={{ fontSize: 11, color: "var(--muted)" }}>{sites.length > 1 ? "Sources" : "Source"}</span>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                                            {sites.map((c, ci) => (
-                                                <a key={ci} href={c.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={c.title || hostOf(c.url)} style={{ display: "block" }}>
-                                                    <img src={faviconOf(c.url)} alt="" loading="lazy" style={{ width: 14, height: 14, borderRadius: "50%", objectFit: "cover", background: "#fff" }} />
-                                                </a>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                                {sites.length > 0 && <SourcesPill sites={sites} />}
                             </div>
                         )
                     })}

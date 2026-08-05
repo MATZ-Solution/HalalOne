@@ -254,7 +254,7 @@ export default function ChatHistory({
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 12 }}
-                        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-green-600 text-white text-sm switzer-500 shadow-lg"
+                        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-60 px-4 py-2 rounded-lg bg-green-600 text-white text-sm switzer-500 shadow-lg"
                     >
                         {toast}
                     </motion.div>
