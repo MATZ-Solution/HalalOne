@@ -60,7 +60,12 @@ search_agent = workflow.compile()
 
 def format_results(product_list: list) -> str:
     for i, product in enumerate(product_list, 1):
-        logger.info(f"{i}. Product name: {product.norm_name} Companies: {' '.join(product.companies)} Certified By: {' '.join(product.cert_bodies)}") 
+        # `or []` guards web-sourced products (verified=False), which are synthesised by
+        # WebSearch and carry no companies/cert_bodies — exactly the products the agent
+        # fell back to the web for.
+        companies = " ".join(product.companies or [])
+        cert_bodies = " ".join(product.cert_bodies or [])
+        logger.info(f"{i}. Product name: {product.norm_name} Companies: {companies} Certified By: {cert_bodies}")
 
 async def run_agent(query:str, config: dict = None)-> dict:
     if not query:
@@ -209,7 +214,10 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
 from contextlib import aclosing
 async def stream_agent(query: str, conversation_history: list):
     if not query:
-        yield {"response": "Please enter a valid query", "documents": []}
+        # Carries "type" like every other event this generator yields, so a client
+        # routing on event["type"] handles the validation case with the same branch it
+        # already uses for the final result.
+        yield {"type": "results", "response": "Please enter a valid query", "documents": []}
         return
     
     final_result = None

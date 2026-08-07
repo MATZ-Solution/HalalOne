@@ -37,18 +37,25 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
         return []
     documents = []
     for k, v in valid.items():
-        query = " ".join(v) if isinstance(v, list) else v
+        # keyword_args is typed Dict[str, Any], so the LLM can put non-strings in it.
+        # Coerce rather than assume — " ".join([123]) would raise TypeError and take
+        # the whole node down with it.
+        query = " ".join(str(i) for i in v) if isinstance(v, list) else str(v)
         documents = search_collection(
             query=query,
             query_by=k,
             collection_name=COLLECTION,
             filter_parameters=active_filters,
         )
-        top_results = documents if documents else []
-        if top_results:
-            active_filters["canonical_id"] = [doc["canonical_id"] for doc in top_results]
-        else:
+        # Fields are ANDed: nothing matched here means nothing can match overall, so
+        # stop rather than querying the remaining fields.
+        if not documents:
             return []
+        # Narrow the next field's search to what this one matched. A document missing
+        # canonical_id is skipped instead of raising KeyError.
+        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+        if matched_ids:
+            active_filters["canonical_id"] = matched_ids
 
     return documents
 
@@ -60,21 +67,24 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
     "Searches halal products by semantic/vector similarity for conceptual or descriptive queries "
     "like 'good for diabetics' or 'natural red food coloring'. Accepts optional exact filters."
     """
-    embedding = embedding_model.embed_query(semantic_query)
-    embedding_str = ",".join(map(str, embedding))
-    params: Dict[str, Any] = {
-        "collection": COLLECTION,
-        "q": "*",
-        "vector_query": f"embedding:([{embedding_str}], k:10)",
-        "per_page": 10,
-        "exclude_fields": "embedding",
-    }
-
-    filter_str = build_filter_string(filter_args)
-    if filter_str:
-        params["filter_by"] = filter_str
-
+    # The embedding call is a network round-trip to Fireworks and belongs inside the
+    # guard: a provider outage should degrade to "no products found" like every other
+    # failure in this tool, not escape and fail the whole node.
     try:
+        embedding = embedding_model.embed_query(semantic_query)
+        embedding_str = ",".join(map(str, embedding))
+        params: Dict[str, Any] = {
+            "collection": COLLECTION,
+            "q": "*",
+            "vector_query": f"embedding:([{embedding_str}], k:10)",
+            "per_page": 10,
+            "exclude_fields": "embedding",
+        }
+
+        filter_str = build_filter_string(filter_args)
+        if filter_str:
+            params["filter_by"] = filter_str
+
         result = TS_CLIENT.multi_search.perform({"searches": [params]}, {})
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
