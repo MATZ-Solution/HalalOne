@@ -143,10 +143,14 @@
 .hl-root .hl-fcol a { display: block; color: var(--text-on-dark-muted); font-size: 14px; padding: 6px 0; }
 .hl-root .hl-fcol a:hover { color: var(--cream-50); }
 
+/* Hamburger: hidden while the desktop nav bar is visible, shown once it hides. */
+.hl-root .hl-navburger { display: none; }
+
 @media (max-width: 900px) {
   .hl-root .hl-hero-grid { grid-template-columns: 1fr !important; }
   .hl-root .hl-split { grid-template-columns: 1fr !important; }
   .hl-root .hl-navcenter { display: none !important; }
+  .hl-root .hl-navburger { display: inline-flex !important; }
 }
 @media (max-width: 640px) {
   .hl-root .hl-nav-actions .hl-hide-sm { display: none !important; }

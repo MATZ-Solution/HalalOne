@@ -31,7 +31,7 @@ WEB_OUTPUT_SCHEMA = {
     "properties": {
         "norm_name": {"type": "string", "description": "Normalised product name, e.g. 'Nestle KitKat Wafer'"},
         "companies": _str_list("Brand or manufacturer names that make or sell the product"),
-        "halal_status": {"type": "string", "description": "Halal status exactly as stated in the source, e.g. 'Halal', 'Haram', 'Mushbooh'"},
+        "halal_status": {"type": "string", "description": "Halal status exactly as stated in the source", "enum": ["Halal", "Haram", "Mushbooh", "Unknown"]},
         "cert_bodies": _str_list("Names of the organisations that certified the product as halal"),
         "cert_numbers": _str_list("Official halal certificates or reference numbers"),
         "category_l1": {"type": "string", "description": "Top-level product category, e.g. 'Food', 'Cosmetics'"},

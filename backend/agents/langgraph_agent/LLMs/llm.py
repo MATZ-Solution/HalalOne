@@ -50,7 +50,6 @@ extracter_llm = ChatGroq(
 final_extracter_llm = ChatGroq(
     api_key = GROQ_API_KEY,
     model = "openai/gpt-oss-120b",
-    # reasoning_effort = "medium",
     temperature = 0,
 )
 
@@ -58,7 +57,6 @@ final_extracter_llm = ChatGroq(
 standard_llm = ChatGroq(
     api_key = GROQ_API_KEY,
     model = "openai/gpt-oss-120b",
-    # reasoning_effort = "medium",
     temperature = 0,
 )
 

@@ -22,6 +22,12 @@ load_dotenv(override=True)
 # user+assistant pair) => 2N messages. Read once at import.
 KEEP_MESSAGES = int(os.getenv("SUMMARY_KEEP_TURNS", "10")) * 2
 
+# Hard cap on the summarizer LLM call. A hang (as opposed to an error) would
+# otherwise leave the session stuck in the "compacting" state forever, since the
+# caller's try/except only catches raised exceptions. On timeout we raise, which
+# flows into _run_compaction's fallback (full, un-compacted context).
+SUMMARY_TIMEOUT_S = float(os.getenv("SUMMARY_TIMEOUT_S", "45"))
+
 
 workflow = StateGraph[SearchAgentState, None, SearchAgentState, SearchAgentState](SearchAgentState)
 workflow.set_node_defaults(
@@ -168,7 +174,17 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
     fold = history[:-KEEP_MESSAGES]
     kept = history[-KEEP_MESSAGES:]
 
-    result = await asyncio.to_thread(summarize_conversation, _history_dicts_to_lc(fold), old_summary)
+    # Bound the blocking LLM call: a hung summarizer would otherwise strand the
+    # session in "compacting" indefinitely. On timeout, wait_for raises
+    # TimeoutError, handled like any other failure by _run_compaction's fallback.
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(summarize_conversation, _history_dicts_to_lc(fold), old_summary),
+            timeout=SUMMARY_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        log.warning("compaction.summarize_timeout", session_id=session_id, timeout_s=SUMMARY_TIMEOUT_S)
+        raise
     if not result:
         raise RuntimeError("summarizer returned no content")
     new_summary = result[0]
@@ -177,9 +193,20 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
     folded_ids = [m["id"] for m in fold if m.get("id")]
     new_ids = list(old_ids) + folded_ids
 
+    # DB is the source of truth and is written first: if this raises (retries
+    # exhausted), the caller falls back to full context with the cache untouched.
     await chat_store.insert_summary(session_id, new_summary, new_ids)
-    await session_state.save_summary(session_id, new_summary, new_ids)
-    await session_state.seed_history(session_id, kept)  # trim to the verbatim tail
+
+    # Warm the cache for the NEXT turn. This turn is unaffected either way — it
+    # uses the in-memory (new_summary, kept) returned below. If either write
+    # fails the cache would be inconsistent with the DB, so invalidate both keys
+    # (best-effort) and let the next turn's _load_context rebuild from the DB.
+    ok_summary = await session_state.save_summary(session_id, new_summary, new_ids)
+    ok_history = await session_state.seed_history(session_id, kept)  # trim to the verbatim tail
+    if not (ok_summary and ok_history):
+        log.warning("compaction.cache_reconcile", session_id=session_id, ok_summary=ok_summary, ok_history=ok_history)
+        await session_state.clear_summary(session_id)
+        await session_state.clear_history(session_id)
 
     log.info("compaction.folded", session_id=session_id, folded=len(fold), kept=len(kept), covered_ids=len(new_ids))
     return new_summary, kept, True

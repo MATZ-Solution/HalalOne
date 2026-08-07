@@ -67,6 +67,10 @@ function getBackendHttpUrl(): string {
     return wsUrl
 }
 
+// If extraction hasn't returned within this window, abort the request and tell
+// the user instead of leaving the dialog spinning indefinitely.
+const EXTRACTION_TIMEOUT_MS = 30_000
+
 function buildInitialFields(extracted: Record<string, unknown>): Field[] {
     const fields: Field[] = []
     const seen = new Set<string>()
@@ -192,9 +196,19 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
     const [message, setMessage] = useState("")
     const [newFieldKey, setNewFieldKey] = useState("")
     const [addingField, setAddingField] = useState(false)
+    // Set when the extraction exceeds EXTRACTION_TIMEOUT_MS: the request is
+    // aborted and the dialog switches to a "timed out" state.
+    const [timedOut, setTimedOut] = useState(false)
 
     useEffect(() => {
         const controller = new AbortController()
+        // Distinguish an abort caused by our own timeout from one caused by the
+        // effect cleanup (unmount / prop change), which must stay silent.
+        let didTimeout = false
+        const timeoutId = setTimeout(() => {
+            didTimeout = true
+            controller.abort()
+        }, EXTRACTION_TIMEOUT_MS)
 
         ;(async () => {
             const supabase = createClient()
@@ -210,19 +224,32 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
                     body: JSON.stringify({ base64: image.base64, mime_type: image.mimeType }),
                     signal: controller.signal,
                 })
+                clearTimeout(timeoutId)
                 if (!r.ok) throw new Error(`HTTP ${r.status}`)
                 const data = await r.json() as { fields: Record<string, unknown> }
                 setFields(buildInitialFields(data.fields ?? {}))
                 setLoading(false)
             } catch (err) {
-                if ((err as Error).name === "AbortError") return
+                clearTimeout(timeoutId)
+                if ((err as Error).name === "AbortError") {
+                    // Timed out → inform the user; the request is already cancelled.
+                    if (didTimeout) {
+                        setTimedOut(true)
+                        setLoading(false)
+                    }
+                    // Otherwise it was a cleanup abort — stay silent.
+                    return
+                }
                 setExtractionError("Could not extract information from this image. You can fill in the fields manually.")
                 setFields(buildInitialFields({}))
                 setLoading(false)
             }
         })()
 
-        return () => controller.abort()
+        return () => {
+            clearTimeout(timeoutId)
+            controller.abort()
+        }
     }, [image.base64, image.mimeType])
 
     useEffect(() => {
@@ -249,6 +276,13 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
         setFields(prev => [...prev, { key, value: "", isCustom: true }])
         setNewFieldKey("")
         setAddingField(false)
+    }
+
+    // Leave the timed-out state and drop into the empty manual-entry form.
+    const handleManualEntry = () => {
+        setFields(buildInitialFields({}))
+        setExtractionError("Enter the product details manually below.")
+        setTimedOut(false)
     }
 
     const handleConfirm = () => {
@@ -313,9 +347,11 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
                             <p className={`switzer-400 text-xs mt-0.5 ${sublabelCls}`}>
                                 {loading
                                     ? "Extracting product information…"
-                                    : extractionError
-                                        ? "Manual entry"
-                                        : "Review and edit the extracted fields"}
+                                    : timedOut
+                                        ? "Analysis timed out"
+                                        : extractionError
+                                            ? "Manual entry"
+                                            : "Review and edit the extracted fields"}
                             </p>
                         </div>
                     </div>
@@ -344,6 +380,41 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
                                     <div className={`h-7 w-full rounded animate-pulse ${isLight ? "bg-black/5" : "bg-white/5"}`} />
                                 </div>
                             ))}
+                        </div>
+                    ) : timedOut ? (
+                        <div className="flex flex-col items-center text-center gap-y-3 py-8">
+                            <div className={`w-11 h-11 rounded-full flex items-center justify-center ${isLight ? "bg-black/5" : "bg-white/5"}`}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className={isLight ? "text-black/50" : "text-white/50"} aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            </div>
+                            <p className={`text-sm switzer-500 ${headingCls}`}>Image analysis timed out</p>
+                            <p className={`text-xs switzer-400 max-w-xs ${sublabelCls}`}>
+                                We couldn&apos;t read this image in time, so the request was cancelled. Try again with a clearer photo, or fill in the fields yourself.
+                            </p>
+                            <div className="flex items-center gap-x-2 mt-1">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className={`px-3 py-1.5 rounded-lg text-sm switzer-400 transition-colors ${isLight
+                                            ? "text-black/50 hover:text-black hover:bg-black/5"
+                                            : "text-white/50 hover:text-white hover:bg-white/5"
+                                        }`}
+                                >
+                                    Close
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleManualEntry}
+                                    className={`px-4 py-1.5 rounded-lg text-sm switzer-500 transition-colors ${isLight
+                                            ? "bg-black text-white hover:bg-black/80"
+                                            : "bg-white text-black hover:bg-white/85"
+                                        }`}
+                                >
+                                    Fill in the fields manually
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -457,7 +528,7 @@ export default function ImageExtractionDialog({ image, theme, onConfirm, onClose
                 </div>
 
                 {/* Footer: message + actions */}
-                {!loading && (
+                {!loading && !timedOut && (
                     <div className={`shrink-0 border-t px-5 pt-4 pb-5 flex flex-col gap-y-3 ${dividerCls}`}>
                         <div className="flex flex-col gap-y-1">
                             <label className={`text-xs switzer-500 ${labelCls}`}>
