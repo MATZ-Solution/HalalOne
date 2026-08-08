@@ -3,6 +3,7 @@ import warnings
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_cerebras import ChatCerebras
+from ..models.models import JudgeVerdict
 # from langchain_aws import ChatBedrockConverse
 
 load_dotenv()
@@ -66,6 +67,14 @@ summarizer_llm = ChatGroq(
     model = "llama-3.3-70b-versatile",
     temperature = 0
 )
+
+# LLM-as-judge for exact-match checking (same model/style as the trajectory
+# evaluator). Returns a JudgeVerdict; matched ids are validated in judge_node.
+judge_llm = ChatGroq(
+    api_key = GROQ_API_KEY,
+    model = "openai/gpt-oss-20b",
+    temperature = 0,
+).with_structured_output(JudgeVerdict, method="json_schema")
 
 # final_extracter_llm = ChatCerebras(
 #     api_key=CEREBRAS_API_KEY,

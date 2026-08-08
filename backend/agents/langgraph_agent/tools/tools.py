@@ -15,10 +15,18 @@ from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput,
 # @traceable(run_type="tool")
 def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
-    """
-    Searches halal products by keyword matching across product name, companies, health info, "
-            "and typical uses, with optional exact filters. Use when specific product names, brand names, "
-            "or keyword terms are mentioned. Also use when only exact filters are provided (keyword_args=null).
+    """Search halal products by keyword. USE THIS when the query names a specific
+    product, brand/company, ingredient, health note, or use — anything concrete —
+    or when the query is only exact filters (category, halal status, cert body,
+    location, marketplace, barcode, etc.).
+
+    Args:
+      keyword_args: text-match fields. Keys: norm_name (str), companies (list[str]),
+        health_info (list[str]), typical_uses (list[str]). Pass null if none.
+        Example — "is Shan biryani masala halal?" → {"norm_name": "biryani masala",
+        "companies": ["Shan"]}.
+      filter_args: exact-match filters (category_l1/l2, halal_status; sold_in,
+        cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace). Pass null if none.
     """
     active_filters = {
         k: v for k, v in (dict(filter_args) if filter_args else {}).items()
@@ -56,9 +64,14 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
 # @traceable(run_type="tool")
 def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
-    """
-    "Searches halal products by semantic/vector similarity for conceptual or descriptive queries "
-    "like 'good for diabetics' or 'natural red food coloring'. Accepts optional exact filters."
+    """Search halal products by semantic/vector similarity. USE THIS only when the
+    query is conceptual or descriptive with NO specific product/brand named — e.g.
+    "a calcium-rich snack for children", "natural red food colouring", "good for
+    diabetics".
+
+    Args:
+      semantic_query: a natural-language phrase capturing the user's intent.
+      filter_args: same exact-match filters as KeywordFilterSearch. Pass null if none.
     """
     embedding = embedding_model.embed_query(semantic_query)
     embedding_str = ",".join(map(str, embedding))
@@ -86,11 +99,15 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
 @tool(args_schema=WebSearchInput)
 # @traceable(run_type="tool")
 def WebSearch(query: str) -> List[Dict]:
-    """Last-resort web search for a halal product, used ONLY after the database
-    tools (KeywordFilterSearch/SemanticFilterSearch) return nothing or nothing
-    relevant. Streams the sources being searched to the client, then returns the
-    product Exa synthesised. The returned product is UNVERIFIED (not from the
-    certified database) and carries per-field grounding citations."""
+    """Web search for a specific halal product, used only as a fallback
+    when the database keyword search found no exact match. Streams the sources being
+    searched to the client, then returns the product Exa synthesised (UNVERIFIED,
+    with per-field grounding citations).
+
+    Args:
+      query: a natural-language web query, usually the product/brand the user asked
+        about (e.g. "Barzula Turkish coffee halal status").
+    """
     # Stream writer may be absent when the graph isn't run in streaming mode.
     try:
         writer = get_stream_writer()

@@ -5,15 +5,18 @@ import uuid
 import asyncio
 import chat_store
 import session_state
-from log.logger import logger, log
+from log.logger import log
 from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import RetryPolicy, default_retry_on
 from .LLMs.llm import summarizer_llm
 from .prompts.prompt import SUMMARIZE_CONVERSATION_PROMPT
-from .models.models import SearchAgentState, FinalAnswerInput
-from .nodes.node import classify_intent, search_node, tool_node, response_node, should_continue, default_error_handler
+from .models.models import SearchAgentState
+from .nodes.node import (
+    classify_intent, search_node, tool_node, judge_node, orchestration_node,
+    response_node, should_continue, default_error_handler,
+)
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -40,8 +43,9 @@ workflow.add_node(
 )
 workflow.add_node("search_node", search_node)
 workflow.add_node("tool_node", tool_node)
+workflow.add_node("judge_node", judge_node)
+workflow.add_node("orchestration_node", orchestration_node)
 workflow.add_node("response_node", response_node)
-
 workflow.add_edge(START, "classify_intent")
 workflow.add_conditional_edges(
     "search_node",
@@ -49,7 +53,10 @@ workflow.add_conditional_edges(
     ["tool_node", "response_node"]
 )
 
-workflow.add_edge("tool_node", "search_node")
+# tool -> judge -> (response on match | orchestration on no match) -> (loop to
+# search | response on budget exhausted). judge_node and orchestration_node route
+# with Command, so no static edges out of them (same pattern as classify_intent).
+workflow.add_edge("tool_node", "judge_node")
 workflow.add_edge("response_node", END)
 
 
@@ -57,28 +64,62 @@ workflow.add_edge("response_node", END)
 # history is persisted in Supabase (chat_messages) rather than in graph state.
 search_agent = workflow.compile()
 
+# build the agent's flow chart
 
-def format_results(product_list: list) -> str:
-    for i, product in enumerate(product_list, 1):
-        logger.info(f"{i}. Product name: {product.norm_name} Companies: {' '.join(product.companies)} Certified By: {' '.join(product.cert_bodies)}") 
+# from IPython.display import Image, display
+# graph_image = search_agent.get_graph(xray=True).draw_mermaid_png()
+# with open("agent_flowchart.png", "wb") as f:
+#     f.write(graph_image)
+# print("Saved as agent_flowchart.png")
+
+
+def _initial_state(query: str, messages: list) -> dict:
+    """Fresh graph state for one run. Lists/None defaults keep the reducers and the
+    node `state.get(...)` calls happy from the very first step."""
+    return {
+        "user_prompt": query,
+        "messages": messages,
+        "search_results": [],
+        "search_call_iterations": 0,
+        "tools_called": [],
+        "first_tool": None,
+        "keyword_params": None,
+        "filters": None,
+        "current_pool": [],
+        "matched": [],
+        "relevant": [],
+    }
+
+
+def _build_results(response: str, result: dict) -> dict:
+    """Assemble the final "results" chunk. Carries the new matched/relevant split
+    AND a combined `documents` (matched first, then relevant) so the existing
+    persistence/frontend keep working until the UI consumes the split."""
+    matched = result.get("matched", [])
+    relevant = result.get("relevant", [])
+    return {
+        "type": "results",
+        "response": response,
+        "matched": matched,
+        "relevant": relevant,
+        "documents": matched + relevant,
+    }
+
 
 async def run_agent(query:str, config: dict = None)-> dict:
     if not query:
-        return {"response": "Please enter a valid query", "documents": []}
+        return {"response": "Please enter a valid query", "matched": [], "relevant": []}
     result = await asyncio.to_thread(
         search_agent.invoke,
-        {"user_prompt": query, "messages": [HumanMessage(query)], "search_results": []},
+        _initial_state(query, [HumanMessage(query)]),
         config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
     )
-    final = FinalAnswerInput.model_validate_json(result["messages"][-1].content)
-    response = final.response
-    products = final.products
-    # print(f"""{'='*25} RESPONSE {'='*25}
-    # {final.response}
-    # """)
-    # format_results(final.products)
-
-    return {"response": response, "documents": products} 
+    final = json.loads(result["messages"][-1].content)
+    return {
+        "response": final.get("response", ""),
+        "matched": final.get("matched", []),
+        "relevant": final.get("relevant", []),
+    }
 
 # ---------------------------------------------------------------------------
 # Conversation summarization / compaction
@@ -216,12 +257,7 @@ async def stream_agent(query: str, conversation_history: list):
     
     async with aclosing(
         search_agent.astream(
-            {
-                "user_prompt": query,
-                "messages": conversation_history,
-                "search_results": [],
-                "search_call_iterations": 0
-            },
+            _initial_state(query, conversation_history),
             stream_mode=["messages", "custom", "updates"],
             version="v2",
         )
@@ -232,17 +268,14 @@ async def stream_agent(query: str, conversation_history: list):
                     if node_name == "__default_error_handler__" and state:
                         messages = state.get("messages", [])
                         if messages:
-                            last_message = messages[-1]
-                            result = json.loads(last_message.content)
-                            response = result.get("response", "Some error occured, please try again.")
-                            products = result.get("products", [])
-                            final_result = {"type": "results", "response": response, "documents": products}
+                            result = json.loads(messages[-1].content)
+                            final_result = _build_results(result.get("response", "Some error occured, please try again."), result)
                             break
                     elif node_name == "response_node" and state:
                         messages = state.get("messages", [])
                         if messages:
                             result = json.loads(messages[-1].content)
-                            final_result = {"type": "results", "response": result.get("response", ""), "documents": result.get("products", [])}
+                            final_result = _build_results(result.get("response", ""), result)
                             break
                 if final_result:
                     break

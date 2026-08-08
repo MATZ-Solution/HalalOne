@@ -13,6 +13,15 @@ class SearchAgentState(TypedDict):
     messages: Annotated[List[AnyMessage], operator.add]
     search_call_iterations: int
 
+    # --- tool ladder + matched/relevant split ---
+    tools_called: Annotated[List[str], operator.add]  # tool names run, in order
+    first_tool: Optional[str]        # tool the first search call chose (sets the ladder + budget)
+    keyword_params: Optional[dict]   # latest KeywordFilterSearch keyword_args (what the user wants)
+    filters: Optional[dict]          # latest KeywordFilterSearch filter_args
+    current_pool: List[dict]         # raw results of the latest tool call (judge input; never sent whole to an LLM)
+    matched: List[dict]              # exact matches / variants (magnified in the UI)
+    relevant: List[dict]             # similar-but-not-exact (diminished in the UI)
+
 # classify intent schema
 classify_intent_schema = {
     "title": "ClassifyIntent",
@@ -90,6 +99,30 @@ class SelectedProducts(BaseModel):
             "copied verbatim from the [id: ...] of each candidate. Most relevant "
             "first, maximum 10. Empty list if nothing is relevant."
         ),
+    )
+
+
+class JudgeVerdict(BaseModel):
+    """LLM-as-judge output: which candidate products exactly match the user's ask.
+    The matched ids are validated against the candidate pool in judge_node."""
+    reasoning: str = Field(
+        ..., description="Step-by-step reasoning for the match decision."
+    )
+    matched_ids: List[str] = Field(
+        default_factory=list,
+        description=(
+            "canonical_id of every candidate that is the SAME product the user "
+            "asked for, or a variant of it. Copied verbatim from each candidate's "
+            "`id:` line. Empty list if none match. Never invent or modify an id."
+        ),
+    )
+
+
+class FinalResponse(BaseModel):
+    """Response node output: only the natural-language message. Products are
+    attached deterministically (already split into matched/relevant)."""
+    response: str = Field(
+        ..., description="Your natural language message to the user. Can't be none."
     )
 
 

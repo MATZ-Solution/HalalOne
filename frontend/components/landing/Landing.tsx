@@ -493,7 +493,6 @@ export default function Landing({ profile = null }: { profile?: Profile | null }
                     style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)", cursor: "pointer" }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--cream-100)" }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-                    onClick={goToApp}
                   >
                     <div style={{ flex: "0 0 auto", width: 42, height: 42, borderRadius: 11, background: "var(--cream-100)", border: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <Icon name={r.icon} size={19} color="var(--green-800)" />

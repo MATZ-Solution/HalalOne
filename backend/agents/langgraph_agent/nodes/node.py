@@ -4,121 +4,109 @@ from log.logger import log
 from langgraph.graph import END
 from langgraph.types import Command
 from langgraph.errors import NodeError
-from ..models.models import OutputSchema, SelectedProducts
 from langgraph.config import get_stream_writer
-from langchain_core.prompts import ChatPromptTemplate
-from ..tools.tools import SemanticFilterSearch, KeywordFilterSearch, WebSearch
-from ..models.models import SearchAgentState, classify_intent_schema
-from ..LLMs.llm import extracter_llm, final_extracter_llm, standard_llm
 from langchain.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
-from ..prompts.prompt import CLASSIFICATION_PROMPT, SEARCH_PROMPT, FINAL_RESPONSE_PROMPT
+from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict, FinalResponse, classify_intent_schema
+from ..LLMs.llm import extracter_llm, final_extracter_llm, standard_llm, judge_llm
+from ..prompts.prompt import CLASSIFICATION_PROMPT, SEARCH_PROMPT, FINAL_RESPONSE_PROMPT, JUDGE_PROMPT
+from ..tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
+from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id
 
 
-MAX_SEARCH_ITERATIONS = 4
+TOOLS_BY_NAME = {t.name: t for t in [KeywordFilterSearch, SemanticFilterSearch, WebSearch]}
+
+# Re-ask the judge at most this many times if it returns ids that aren't in the
+# candidate pool (hallucinated), before falling back to the valid ids only.
+JUDGE_MAX_RETRIES = 2
+
 
 def classify_intent(state: SearchAgentState) -> Command[Literal["search_node", "response_node"]]:
-    """Use an llm to classify user's intent from prompt"""
+    """Use an llm to classify user's intent from prompt: search or direct."""
 
-    structured_llm = extracter_llm.with_structured_output(classify_intent_schema, method = 'json_mode')
+    structured_llm = extracter_llm.with_structured_output(classify_intent_schema, method='json_mode')
     messages = [SystemMessage(CLASSIFICATION_PROMPT)] + state["messages"]
     result = structured_llm.invoke(messages)
-    goto = "search_node"
-    if result.get("classification") == "search":
-        goto = "search_node"
-    elif result.get("classification") == "direct":
-        goto = "response_node"
+    goto = "response_node" if result.get("classification") == "direct" else "search_node"
+    return Command(goto=goto)
 
-    return Command(
-        goto = goto
-    )
-
-
-# search tools
-search_tools = [KeywordFilterSearch, SemanticFilterSearch, WebSearch]
-search_tools_by_name = {tool.name: tool for tool in search_tools}
 
 def search_node(state: SearchAgentState) -> dict:
-    """
-    Searches TypeSense to retrieve relevant halal products
-    Two core components:
-    1. Keyword + Filter based search
-    2. Semantic + Filter based search
-    """
-    search_iterations = state.get("search_call_iterations", 0)
-    # Always bind tools. The loop is capped in should_continue instead of by
-    # dropping tools here — gpt-oss on Groq still emits a tool call when no tools
-    # are bound, which Groq rejects ("tool choice is none, but model called a tool").
-    llm_with_tools = standard_llm.bind_tools(search_tools)
-    result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state['messages'])
+    """Issue exactly one search tool call.
 
-    return {
-        "messages": [result],
-        "search_call_iterations": search_iterations + 1
-    }
+    Which tools are available is decided by the ladder (select_tools), not by the
+    LLM — only the allowed tool(s) are bound and a call is forced. So the fallback
+    order is guaranteed while the LLM is still free to reformulate the args for the
+    tool it's given. The first entry binds {keyword, semantic}: that pick sets the
+    whole trajectory.
+    """
+    names = select_tools(state.get("first_tool"), state.get("tools_called", []))
+    tools = [TOOLS_BY_NAME[n] for n in names]
+    # "any" forces the model to call one of the bound tools, so the ladder order
+    # holds; with a single tool bound it's effectively forced to that one.
+    llm_with_tools = standard_llm.bind_tools(tools, tool_choice="any")
+    result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state["messages"])
+    return {"messages": [result]}
 
 
 def should_continue(state: SearchAgentState) -> Literal["tool_node", "response_node"]:
-    """Route after each LLM call: run pending tool calls, else format the answer.
-    WebSearch is one of the tools, so the LLM decides (with full context of the
-    DB results it already saw) whether to escalate to the web."""
-
+    """Run the pending tool call, or (safety only, since the call is forced) go
+    straight to the response."""
     last_message = state["messages"][-1]
-    has_tool_calls = bool(getattr(last_message, "tool_calls", None))
-    iterations = state.get("search_call_iterations", 0)
-
-    # Cap the search loop here. Past the budget we go to response_node even if the
-    # model asked for more tools (its last tool calls are simply not executed).
-    if has_tool_calls and iterations < MAX_SEARCH_ITERATIONS:
-        return "tool_node"
-    return "response_node"
+    return "tool_node" if getattr(last_message, "tool_calls", None) else "response_node"
 
 
 def tool_node(state: SearchAgentState) -> dict:
-    """Executes the tools invoked."""
+    """Execute the tool call and keep the full results in state. The ToolMessage
+    is written by judge_node instead (it knows the match verdict), so no message is
+    appended here — judge_node runs next and never invokes an LLM on state messages
+    in between, so the tool-call/tool-result protocol stays intact."""
 
-    # initialize the stream writer
     writer = get_stream_writer()
-    search_results = []
-    tool_messages = []
-    for tool_call in state["messages"][-1].tool_calls:
-        tool = search_tools_by_name.get(tool_call["name"])
+    tool_calls = state["messages"][-1].tool_calls
+    pool: list = []
+    ran = None
+    keyword_params = None
+    filters = None
+
+    for tool_call in tool_calls:
+        tool = TOOLS_BY_NAME.get(tool_call["name"])
         if tool is None:
             log.warning("agent.tool.unknown", tool=tool_call["name"])
-            tool_messages.append(ToolMessage(
-                content="Unknown tool.", tool_call_id=tool_call["id"]
-            ))
             continue
-        observation = tool.invoke(tool_call['args'])
-        if not observation:
-            tool_messages.append(ToolMessage(
-            content="No products found.", tool_call_id=tool_call["id"]
-            ))
-            continue
-        writer({"search_results": observation, "tool": tool_call["name"]})
-        search_results.extend(observation)
-        tool_messages.append(ToolMessage(content=json.dumps(observation), tool_call_id = tool_call["id"]))
 
-    return {"messages": tool_messages, "search_results": search_results}
+        observation = tool.invoke(tool_call["args"]) or []
+        ran = tool_call["name"]
+        # The judge compares downstream results against the LATEST keyword criteria,
+        # so capture them whenever a keyword search runs.
+        if tool_call["name"] == KeywordFilterSearch.name:
+            keyword_params = tool_call["args"].get("keyword_args")
+            filters = tool_call["args"].get("filter_args")
+
+        if observation:
+            writer({"search_results": observation, "tool": tool_call["name"]})
+            pool.extend(observation)
+
+    update: dict = {
+        "tools_called": [ran] if ran else [],
+        "current_pool": pool,
+    }
+    # first tool call sets the trajectory (and its budget)
+    if not state.get("first_tool") and ran:
+        update["first_tool"] = ran
+    # store the latest keyword criteria for the judge (only on a keyword call)
+    if ran == KeywordFilterSearch.name:
+        update["keyword_params"] = keyword_params
+        update["filters"] = filters
+    return update
 
 
-# Queryable product fields shown to the final LLM (compact). Bulky / internal
-# fields (grounding, embedding, source_files, source_ids) are deliberately left
-# out — they aren't needed to judge relevance and would inflate the prompt.
-_CANDIDATE_FIELDS = [
-    "norm_name", "companies", "halal_status", "cert_bodies", "cert_numbers",
-    "category_l1", "category_l2", "sold_in", "marketplace", "fda_numbers",
-    "barcodes", "typical_uses", "health_info",
-]
-# Fields allowed out to the client (whitelist applied when returning products).
-_ALLOWED_OUT = set(OutputSchema.model_fields)
-_FALLBACK_N = 3
-
-
-def _compact_candidate(p: dict) -> str:
-    """One compact, LLM-friendly block per product: an id line + present fields."""
-    lines = [f"id: {p.get('canonical_id')}"]
-    for field in _CANDIDATE_FIELDS:
-        value = p.get(field)
+def _compact_for_judge(product: dict, fields: list[str]) -> str:
+    """One compact block per candidate for the judge: id + only the given fields.
+    Keeps the prompt small and stops the judge matching on fields the user never
+    provided."""
+    lines = [f"id: {product.get('canonical_id')}"]
+    for field in fields:
+        value = product.get(field)
         if not value:
             continue
         if isinstance(value, list):
@@ -126,6 +114,106 @@ def _compact_candidate(p: dict) -> str:
         lines.append(f"{field}: {value}")
     return "\n".join(lines)
 
+
+def _judge_matches(keyword_params: dict, candidates: list) -> list:
+    """LLM-as-judge: ids of the candidates that exactly match the user's keyword
+    criteria. Re-asks with feedback if it invents ids, then keeps only valid ones."""
+    if not candidates:
+        return []
+
+    # Show only the keyword fields the user actually gave: the judge compares each
+    # provided field against the product's same field, nothing else.
+    show_fields = [f for f in KEYWORD_FIELDS if keyword_params.get(f)]
+
+    candidate_ids = [c.get("canonical_id") for c in candidates if c.get("canonical_id")]
+    blob = "\n\n".join(_compact_for_judge(c, show_fields) for c in candidates)
+    messages = [
+        SystemMessage(JUDGE_PROMPT),
+        HumanMessage(f"USER WANTS:\n{json.dumps(keyword_params)}\n\nCANDIDATES:\n{blob}"),
+    ]
+
+    valid: list = []
+    for attempt in range(JUDGE_MAX_RETRIES + 1):
+        try:
+            # the judge llm is also emitting a reasoning field (extra tokens). Have to see whether to remove it or not.
+            verdict: JudgeVerdict = judge_llm.invoke(messages)
+        except Exception as e:
+            log.error("judge.invoke.failed", error=str(e), error_type=type(e).__name__)
+            return valid
+        valid, hallucinated = validate_ids(verdict.matched_ids, candidate_ids)
+        if not hallucinated:
+            return valid
+        log.warning("judge.hallucinated_ids", ids=hallucinated, attempt=attempt + 1)
+        messages.append(AIMessage(content=json.dumps({"matched_ids": verdict.matched_ids})))
+        messages.append(HumanMessage(
+            f"You returned ids that are not in the candidates: {hallucinated}. "
+            "Only return ids that appear verbatim on an `id:` line. Do not infer or invent."
+        ))
+    return valid
+
+
+def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orchestration_node"]]:
+    """Split the latest tool results into matched vs relevant.
+
+    - Semantic-FIRST query: purely conceptual, no exact target → nothing "matches";
+      everything found is a relevant/similar suggestion. (A downstream semantic
+      call under a keyword-first query is still judged with the stored criteria.)
+    - Filter-rejected products are dropped outright — they break the user's explicit
+      filters, so they are neither matched nor relevant.
+    - Keyword criteria (if given) are checked by the LLM judge; the passers that
+      don't match become relevant/similar suggestions.
+
+    On a match we return to response immediately (first match ends the loop);
+    otherwise we accumulate relevant and hand off to orchestration.
+    """
+    pool = state.get("current_pool", [])
+    prior_relevant = state.get("relevant", [])
+    keyword_params = state.get("keyword_params")
+
+    if state.get("first_tool") == SemanticFilterSearch.name:
+        matched, non_matched = [], pool
+    else:
+        # Only filter-passers can be matched or relevant; rejected ones are dropped.
+        passers, _rejected = apply_filter_check(pool, state.get("filters"))
+        if keyword_params:
+            matched_ids = set(_judge_matches(keyword_params, passers))
+            matched = [p for p in passers if p.get("canonical_id") in matched_ids]
+            non_matched = [p for p in passers if p.get("canonical_id") not in matched_ids]
+        else:
+            # filter-only query → the filter passers ARE the matches (no LLM needed)
+            matched, non_matched = passers, []
+
+    # Non-matching passers are always relevant/similar, accumulated across calls
+    # and de-duplicated. Filter-rejected products never enter relevant.
+    relevant = dedup_by_id(prior_relevant + non_matched)
+
+    # Author the ToolMessage here (not in tool_node) so it states the JUDGED
+    # outcome: on a no-match loop, search_node reads an authoritative "no products
+    # matched" signal instead of a raw count it could mistake for success. Required
+    # for the tool-call protocol, so it's emitted on both paths.
+    last_tool = state.get("tools_called", [])[-1] if state.get("tools_called") else "search"
+    summary = (
+        f"{last_tool}: found {len(matched)} matching product(s)."
+        if matched else
+        f"{last_tool}: no products matched."
+    )
+    tool_calls = getattr(state["messages"][-1], "tool_calls", None) or []
+    tool_messages = [ToolMessage(content=summary, tool_call_id=tc["id"]) for tc in tool_calls]
+
+    if matched:
+        return Command(update={"messages": tool_messages, "matched": matched, "relevant": relevant}, goto="response_node")
+    return Command(update={"messages": tool_messages, "matched": [], "relevant": relevant}, goto="orchestration_node")
+
+
+def orchestration_node(state: SearchAgentState) -> Command[Literal["search_node", "response_node"]]:
+    """Loop controller: fall back to the next tool if the budget allows, else stop."""
+    first_tool = state.get("first_tool")
+    calls = len(state.get("tools_called", []))
+    goto = "search_node" if should_loop(first_tool, calls) else "response_node"
+    return Command(goto=goto)
+
+# Fields allowed out to the client (whitelist applied when returning products).
+_ALLOWED_OUT = set(OutputSchema.model_fields)
 
 def _project(raw: dict) -> dict:
     """Return only client-facing fields; default DB products to verified."""
@@ -135,53 +223,36 @@ def _project(raw: dict) -> dict:
 
 
 def response_node(state: SearchAgentState) -> dict:
-    """Writes the user-facing message and selects which products to show.
+    """Write the user-facing message and attach the already-decided product buckets.
 
-    The LLM only returns the ids of the relevant products; the product objects
-    are looked up by canonical_id and returned verbatim. This keeps the data
-    deterministic (no field mangling/hallucination) and the output cheap.
+    The split (matched/relevant) was done in judge_node, so this node only composes
+    prose — it never re-selects products. The LLM gets only compact names so it can
+    phrase naturally without seeing the full payload.
     """
+    matched = state.get("matched", [])
+    relevant = state.get("relevant", [])
 
-    all_results = state.get("search_results", [])
-    candidates = "\n\n".join(_compact_candidate(p) for p in all_results) or "No products found."
+    preview = [p.get("norm_name") for p in (matched or relevant)][:10]
+    note = f"matched: {len(matched)}, relevant: {len(relevant)}. product names: {preview}"
 
-    structured_llm = final_extracter_llm.with_structured_output(SelectedProducts, method="json_schema")
-    result = structured_llm.invoke([SystemMessage(FINAL_RESPONSE_PROMPT), *state["messages"], HumanMessage(f"halal_search_results:\n {candidates}")])
-    # result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state['messages'])
-    # Resolve ids -> products deterministically. Unknown ids (hallucinated) are
-    # skipped; duplicates de-duped; order follows the LLM's relevance order.
-    by_id = {p.get("canonical_id"): p for p in all_results if p.get("canonical_id")}
-    selected, seen = [], set()
-    for pid in result.product_ids:
-        if pid not in by_id:
-            log.warning("response_node.unknown_product_id", product_id=pid)
-            continue
-        if pid in seen:
-            continue
-        seen.add(pid)
-        selected.append(_project(by_id[pid]))
-        if len(selected) >= 10:
-            break
-    # Fallback: the LLM tried to select (returned ids) but none matched, while we
-    # do have results -> show the most recent few (no unified score across DB/web).
-    if result.product_ids and not selected and all_results:
-        log.warning("response_node.no_ids_matched", note="falling back to recent results")
-        selected = [_project(p) for p in reversed(all_results[-_FALLBACK_N:])]
-    
-    final = {"response": result.response, "products": selected}
-    return {
-        "messages": [AIMessage(content=json.dumps(final))]
+    structured_llm = final_extracter_llm.with_structured_output(FinalResponse, method="json_schema")
+    result = structured_llm.invoke([SystemMessage(FINAL_RESPONSE_PROMPT), *state["messages"], HumanMessage(note)])
+
+    final = {
+        "response": result.response,
+        "matched": [_project(p) for p in matched][:10],
+        "relevant": [_project(p) for p in relevant][:10],
     }
-
+    return {"messages": [AIMessage(content=json.dumps(final))]}
 
 
 def default_error_handler(state: SearchAgentState, error: NodeError):
     """Recovery node, handles node failures."""
 
     log.error("agent.node.failed", node=error.node, error=str(error), error_type=type(error.error).__name__)
-    response_object = {"response": "Some error occured, please try again.", "products": []}
-    
+    response_object = {"response": "Some error occured, please try again.", "matched": [], "relevant": []}
+
     return Command(
-        update = {"messages": [AIMessage(content=json.dumps(response_object))]},
-        goto = END
+        update={"messages": [AIMessage(content=json.dumps(response_object))]},
+        goto=END,
     )
