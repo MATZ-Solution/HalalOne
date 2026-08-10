@@ -24,6 +24,11 @@ class SearchAgentState(TypedDict):
     relevant: List[dict]             # similar-but-not-exact (diminished in the UI)
 
 # classify intent schema
+# The property name must stay in sync with CLASSIFICATION_PROMPT (which tells the model
+# to emit `classification`) and with classify_intent in nodes/node.py (which reads it).
+# with_structured_output(..., method='json_mode') parses the reply with a plain
+# JsonOutputParser — it neither sends this schema to the provider nor validates against
+# it — so the prompt is what actually shapes the reply and this schema documents it.
 classify_intent_schema = {
     "title": "ClassifyIntent",
     "type": "object",
@@ -35,7 +40,7 @@ classify_intent_schema = {
             "enum": ["search", "direct"]
         }
     },
-    "required": ["intent"] 
+    "required": ["classification"]
 }
 
 class OutputSchema(BaseModel):
@@ -134,7 +139,10 @@ class FilterArgs(BaseModel):
     category_l2: Optional[str] = None
     halal_status: Optional[str] = None
     
-    # List fields (default to empty list instead of None for easier handling)
+    # List fields. Like the string fields above these default to None, meaning "the LLM
+    # did not supply this filter" — build_filter_string and KeywordFilterSearch both skip
+    # falsy values, so None and [] are equivalent downstream. Consumers reading these
+    # directly must still guard for None.
     sold_in: Optional[list[str]] = Field(None, description="Countries where product is sold")
     cert_bodies: Optional[list[str]] = Field(None, description="Certification bodies")
     cert_numbers: Optional[list[str]] = None

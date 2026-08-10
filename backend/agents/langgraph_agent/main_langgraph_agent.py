@@ -251,7 +251,10 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
 from contextlib import aclosing
 async def stream_agent(query: str, conversation_history: list):
     if not query:
-        yield {"response": "Please enter a valid query", "documents": []}
+        # Carries "type" like every other event this generator yields, so a client
+        # routing on event["type"] handles the validation case with the same branch it
+        # already uses for the final result.
+        yield {"type": "results", "response": "Please enter a valid query", "documents": []}
         return
     
     final_result = None
