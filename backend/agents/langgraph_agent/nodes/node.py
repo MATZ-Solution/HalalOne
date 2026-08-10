@@ -179,6 +179,7 @@ def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orc
             matched_ids = set(_judge_matches(keyword_params, passers))
             matched = [p for p in passers if p.get("canonical_id") in matched_ids]
             non_matched = [p for p in passers if p.get("canonical_id") not in matched_ids]
+            print("Non matched", non_matched)
         else:
             # filter-only query → the filter passers ARE the matches (no LLM needed)
             matched, non_matched = passers, []

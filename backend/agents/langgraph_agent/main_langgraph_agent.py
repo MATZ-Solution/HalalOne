@@ -328,3 +328,47 @@ async def stream_agent(query: str, conversation_history: list):
 
     if final_result:
         yield final_result
+
+
+# ---------------------------------------------------------------------------
+# Manual smoke tests for stream_agent (run: python -m
+# agents.langgraph_agent.main_langgraph_agent from the backend/ dir). They hit
+# the real LLMs/tools, so they're integration checks, not offline unit tests.
+# ---------------------------------------------------------------------------
+
+async def _test_stream_agent_search() -> dict:
+    """A product query should stream intermediate events and end on a `results`
+    chunk carrying the matched/relevant split."""
+    query = "Are oreo cookies halal?"
+    final = None
+    async for chunk in stream_agent(query, [HumanMessage(query)]):
+        if chunk.get("type") == "results":
+            final = chunk
+        else:
+            print("stream:", chunk.get("type"), chunk.get("tool") or chunk.get("message") or "")
+
+    assert final is not None, "no results chunk emitted"
+    for key in ("response", "matched", "relevant", "documents"):
+        assert key in final, f"results chunk missing '{key}'"
+    print(f"SEARCH OK | matched={len(final['matched'])} relevant={len(final['relevant'])} | {final['response']}")
+    return final
+
+
+async def _test_stream_agent_direct() -> dict:
+    """A direct/greeting query should skip search and return a `results` chunk
+    with no products in either bucket."""
+    query = "Hi, how are you?"
+    final = None
+    async for chunk in stream_agent(query, [HumanMessage(query)]):
+        if chunk.get("type") == "results":
+            final = chunk
+
+    assert final is not None, "no results chunk emitted"
+    assert final.get("matched") == [], "direct query should have no matched products"
+    assert final.get("relevant") == [], "direct query should have no relevant products"
+    print(f"DIRECT OK | {final['response']}")
+    return final
+
+
+asyncio.run(_test_stream_agent_search())
+# asyncio.run(_test_stream_agent_direct())
