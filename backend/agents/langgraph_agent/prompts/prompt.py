@@ -36,6 +36,11 @@ output: {{"classification": "direct"}}
 """
 
 
+# Hardcoded response-node messages — no LLM needed when the outcome is known.
+NO_EXACT_SIMILAR_MSG = "Sorry, no exact matches found. You might be interested in the following similar products."
+NO_RESULTS_MSG = "Sorry, I couldn't find any matching products. Try a different name, a broader term, or check the spelling."
+
+
 JUDGE_PROMPT = """You are a halal-product field-match judge.
 
 Output only **VALID** JSON.

@@ -81,6 +81,7 @@ def _initial_state(query: str, messages: list) -> dict:
         "messages": messages,
         "search_results": [],
         "search_call_iterations": 0,
+        "classification": None,
         "tools_called": [],
         "first_tool": None,
         "keyword_params": None,

@@ -8,7 +8,10 @@ from langgraph.config import get_stream_writer
 from langchain.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict, FinalResponse, classify_intent_schema
 from ..LLMs.llm import extracter_llm, final_extracter_llm, standard_llm, judge_llm
-from ..prompts.prompt import CLASSIFICATION_PROMPT, SEARCH_PROMPT, FINAL_RESPONSE_PROMPT, JUDGE_PROMPT
+from ..prompts.prompt import (
+    CLASSIFICATION_PROMPT, SEARCH_PROMPT, FINAL_RESPONSE_PROMPT, JUDGE_PROMPT,
+    NO_EXACT_SIMILAR_MSG, NO_RESULTS_MSG,
+)
 from ..tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
 from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id
 
@@ -26,8 +29,9 @@ def classify_intent(state: SearchAgentState) -> Command[Literal["search_node", "
     structured_llm = extracter_llm.with_structured_output(classify_intent_schema, method='json_mode')
     messages = [SystemMessage(CLASSIFICATION_PROMPT)] + state["messages"]
     result = structured_llm.invoke(messages)
-    goto = "response_node" if result.get("classification") == "direct" else "search_node"
-    return Command(goto=goto)
+    classification = result.get("classification")
+    goto = "response_node" if classification == "direct" else "search_node"
+    return Command(update={"classification": classification}, goto=goto)
 
 
 def search_node(state: SearchAgentState) -> dict:
@@ -207,11 +211,21 @@ def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orc
 
 
 def orchestration_node(state: SearchAgentState) -> Command[Literal["search_node", "response_node"]]:
-    """Loop controller: fall back to the next tool if the budget allows, else stop."""
+    """Loop controller: fall back to the next tool if the budget allows, else stop.
+
+    Semantic-first is a special case: it produces no exact matches, so we stop as
+    soon as it returned something (relevant non-empty). Only an EMPTY first semantic
+    call earns a second (reformulated) attempt within the budget.
+    """
     first_tool = state.get("first_tool")
     calls = len(state.get("tools_called", []))
-    goto = "search_node" if should_loop(first_tool, calls) else "response_node"
-    return Command(goto=goto)
+
+    if first_tool == SemanticFilterSearch.name:
+        loop = not state.get("relevant") and should_loop(first_tool, calls)
+    else:
+        loop = should_loop(first_tool, calls)
+
+    return Command(goto="search_node" if loop else "response_node")
 
 # Fields allowed out to the client (whitelist applied when returning products).
 _ALLOWED_OUT = set(OutputSchema.model_fields)
@@ -224,23 +238,32 @@ def _project(raw: dict) -> dict:
 
 
 def response_node(state: SearchAgentState) -> dict:
-    """Write the user-facing message and attach the already-decided product buckets.
+    """Attach the already-decided product buckets and set the message.
 
-    The split (matched/relevant) was done in judge_node, so this node only composes
-    prose — it never re-selects products. The LLM gets only compact names so it can
-    phrase naturally without seeing the full payload.
+    The split (matched/relevant) was done in judge_node, so this node never
+    re-selects products. It also avoids the LLM whenever the outcome is known:
+      - exact matches found → empty response (the cards speak for themselves)
+      - only similar found   → fixed "no exact match, here are similar" message
+      - search found nothing → fixed "couldn't find it" message
+      - direct chit-chat     → LLM for a contextual, conversational reply
     """
     matched = state.get("matched", [])
     relevant = state.get("relevant", [])
 
-    preview = [p.get("norm_name") for p in (matched or relevant)][:10]
-    note = f"matched: {len(matched)}, relevant: {len(relevant)}. product names: {preview}"
-
-    structured_llm = final_extracter_llm.with_structured_output(FinalResponse, method="json_schema")
-    result = structured_llm.invoke([SystemMessage(FINAL_RESPONSE_PROMPT), *state["messages"], HumanMessage(note)])
+    if matched:
+        response = ""
+    elif relevant:
+        response = NO_EXACT_SIMILAR_MSG
+    elif state.get("classification") == "search":
+        response = NO_RESULTS_MSG
+    else:
+        # direct classification: no products, so let the LLM answer conversationally
+        structured_llm = final_extracter_llm.with_structured_output(FinalResponse, method="json_schema")
+        result = structured_llm.invoke([SystemMessage(FINAL_RESPONSE_PROMPT), *state["messages"]])
+        response = result.response
 
     final = {
-        "response": result.response,
+        "response": response,
         "matched": [_project(p) for p in matched][:10],
         "relevant": [_project(p) for p in relevant][:10],
     }

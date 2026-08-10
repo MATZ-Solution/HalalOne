@@ -14,6 +14,7 @@ class SearchAgentState(TypedDict):
     search_call_iterations: int
 
     # --- tool ladder + matched/relevant split ---
+    classification: Optional[str]    # "search" | "direct" (set by classify_intent)
     tools_called: Annotated[List[str], operator.add]  # tool names run, in order
     first_tool: Optional[str]        # tool the first search call chose (sets the ladder + budget)
     keyword_params: Optional[dict]   # latest KeywordFilterSearch keyword_args (what the user wants)
