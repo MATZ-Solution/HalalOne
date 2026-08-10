@@ -25,7 +25,8 @@ type Message = {
     id: string
     role: "user" | "agent"
     content: string
-    products?: Product[]
+    matched?: Product[]      // exact matches / variants — shown magnified
+    relevant?: Product[]     // similar products — shown smaller (0.75x)
     imageDataUrl?: string
     imageUrl?: string
 }
@@ -50,6 +51,8 @@ type StreamChunk = {
     highlights?: string[]
     response?: string
     documents?: Product[]
+    matched?: Product[]
+    relevant?: Product[]
     disclaimer?: string | null
     message_id?: string
 }
@@ -159,7 +162,15 @@ const applyChunk = (rt: Runtime, data: StreamChunk): Runtime => {
             return { ...rt, compaction: { phase: "idle" } }
         case "results": {
             const already = data.message_id !== undefined && rt.messages.some(m => m.id === data.message_id)
-            const answer: Message = { id: data.message_id ?? crypto.randomUUID(), role: "agent", content: data.response ?? "", products: data.documents ?? [] }
+            // Prefer the matched/relevant split; fall back to the merged documents
+            // (older backend) as matched so nothing is lost.
+            const answer: Message = {
+                id: data.message_id ?? crypto.randomUUID(),
+                role: "agent",
+                content: data.response ?? "",
+                matched: data.matched ?? data.documents ?? [],
+                relevant: data.relevant ?? [],
+            }
             return {
                 ...rt,
                 messages: already ? rt.messages : [...rt.messages, answer],
@@ -237,6 +248,13 @@ const SCOPED_CSS = `
 .hochat-root .cscroll::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--green-800) 20%,transparent);border-radius:8px;}
 .hochat-root .cscroll-d::-webkit-scrollbar{width:8px;}
 .hochat-root .cscroll-d::-webkit-scrollbar-thumb{background:rgba(251,250,246,.18);border-radius:8px;}
+/* Shrink the "similar products" group to 0.75x. zoom reflows layout cleanly in
+   Chromium/WebKit and modern Firefox; the @supports fallback covers old Firefox
+   (<126) with transform (width compensates so it still fills the column). */
+.hochat-root .hoc-shrink{zoom:0.75;}
+@supports not (zoom:1){
+  .hochat-root .hoc-shrink{zoom:normal;transform:scale(0.75);transform-origin:top left;width:133.3333%;}
+}
 @keyframes hoc-fade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
 @keyframes hoc-blink{0%,80%,100%{opacity:.25;transform:translateY(0);}40%{opacity:1;transform:translateY(-3px);}}
 @keyframes hoc-pulse{0%,100%{opacity:.5;}50%{opacity:1;}}
@@ -405,13 +423,20 @@ export default function Page() {
 
             if (data.type === "chat_history") {
                 if (data.session_id && data.session_id !== threadId) return
-                const msgs: Message[] = (data.messages ?? []).map((m: { id?: string; role: string; content: string; search_results?: Product[]; image_url?: string }) => ({
-                    id: m.id ?? crypto.randomUUID(),
-                    role: m.role === "assistant" ? "agent" : "user",
-                    content: m.content,
-                    products: m.search_results ?? undefined,
-                    imageUrl: m.image_url ?? undefined,
-                }))
+                // search_results is the new {matched, relevant} object OR (older
+                // rows) a flat array — map both. A flat array is treated as matched.
+                const msgs: Message[] = (data.messages ?? []).map((m: { id?: string; role: string; content: string; search_results?: Product[] | { matched?: Product[]; relevant?: Product[] }; image_url?: string }) => {
+                    const sr = m.search_results
+                    const split = sr && !Array.isArray(sr)
+                    return {
+                        id: m.id ?? crypto.randomUUID(),
+                        role: m.role === "assistant" ? "agent" : "user",
+                        content: m.content,
+                        matched: split ? (sr.matched ?? []) : (Array.isArray(sr) ? sr : []),
+                        relevant: split ? (sr.relevant ?? []) : [],
+                        imageUrl: m.image_url ?? undefined,
+                    }
+                })
                 if (historyLoadingRef.current && msgs.length === 0) {
                     setHistoryLoading(false)
                     setThreadId(crypto.randomUUID())
@@ -437,6 +462,13 @@ export default function Page() {
 
             if (data.type === "chat_sessions") {
                 setSessions(data.sessions ?? [])
+                return
+            }
+
+            // A brand-new chat's session was just created server-side — add it to
+            // the sidebar immediately (dedup by id) instead of waiting for a reload.
+            if (data.type === "session_created" && data.session) {
+                setSessions(prev => prev.some(s => s.session_id === data.session.session_id) ? prev : [data.session, ...prev])
                 return
             }
 
@@ -898,11 +930,30 @@ export default function Page() {
                                                         <Markdown textContent={msg.content} theme="light" />
                                                     </div>
                                                 )}
-                                                {msg.products && msg.products.length > 0 && (
-                                                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
-                                                        {msg.products.map((product) => (
-                                                            <ProductCard key={product.canonical_id} product={product} onOpen={() => setSelectedProduct(product)} />
-                                                        ))}
+                                                {/* Exact matches — magnified, with a small tag */}
+                                                {msg.matched && msg.matched.length > 0 && (
+                                                    <div style={{ marginTop: 14 }}>
+                                                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 10.5, fontWeight: 800, background: "color-mix(in srgb,var(--green-700) 12%,transparent)", color: "var(--green-700)", border: "1px solid color-mix(in srgb,var(--green-700) 30%,transparent)", marginBottom: 8 }}>
+                                                            Exact Match{msg.matched.length > 1 ? "es" : ""}
+                                                        </span>
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                                            {msg.matched.map((product) => (
+                                                                <ProductCard key={product.canonical_id} product={product} onOpen={() => setSelectedProduct(product)} />
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {/* Similar products — diminished to 0.75x (1:0.75 ratio) */}
+                                                {msg.relevant && msg.relevant.length > 0 && (
+                                                    <div style={{ marginTop: 16 }}>
+                                                        <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--muted)", marginBottom: 6 }}>
+                                                            Similar Product{msg.relevant.length > 1 ? "s" : ""} you might be interested in
+                                                        </span>
+                                                        <div className="hoc-shrink" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                                            {msg.relevant.map((product) => (
+                                                                <ProductCard key={product.canonical_id} product={product} onOpen={() => setSelectedProduct(product)} />
+                                                            ))}
+                                                        </div>{/* hoc-shrink scales to 0.75x (with old-Firefox fallback) */}
                                                     </div>
                                                 )}
                                             </div>
