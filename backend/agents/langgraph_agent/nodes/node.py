@@ -1,4 +1,5 @@
 import json
+import groq
 from typing import Literal
 from log.logger import log
 from pydantic import ValidationError
@@ -50,7 +51,20 @@ def search_node(state: SearchAgentState) -> dict:
     # "any" forces the model to call one of the bound tools, so the ladder order
     # holds; with a single tool bound it's effectively forced to that one.
     llm_with_tools = standard_llm.bind_tools(tools, tool_choice="any")
-    result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state["messages"])
+    try:
+        result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state["messages"])
+    except Exception as e:
+        # Groq raises "Tool choice is required, but model did not call a tool" when
+        # the forced model declines to search (e.g. a 2nd semantic retry it deems
+        # pointless). That's not a real failure — return no tool call so
+        # should_continue routes to the response with what we already have. Re-raise
+        # anything else (rate limit, network) for the node retry policy to handle.
+        # isinstance guards that it's a Groq API error; rate limits are APIError
+        # subclasses too, so the string is what pins it to the tool-choice case.
+        if isinstance(e, groq.APIError) and "did not call a tool" in str(e).lower():
+            log.warning("search_node.declined_tool", tools=names, error=str(e))
+            return {"messages": [AIMessage(content="")]}
+        raise
     return {"messages": [result]}
 
 

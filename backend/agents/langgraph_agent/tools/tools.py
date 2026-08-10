@@ -152,3 +152,8 @@ def WebSearch(query: str) -> List[Dict]:
     product["verified"] = False
     product["grounding"] = grounding
     return [product]
+
+
+
+result = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": "body satin foot scrub"}})
+print(result)
