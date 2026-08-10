@@ -1,10 +1,12 @@
 import json
 from typing import Literal
 from log.logger import log
+from pydantic import ValidationError
 from langgraph.graph import END
 from langgraph.types import Command
 from langgraph.errors import NodeError
 from langgraph.config import get_stream_writer
+from langchain_core.exceptions import OutputParserException
 from langchain.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict, FinalResponse, classify_intent_schema
 from ..LLMs.llm import extracter_llm, final_extracter_llm, standard_llm, judge_llm
@@ -141,7 +143,19 @@ def _judge_matches(keyword_params: dict, candidates: list) -> list:
         try:
             # the judge llm is also emitting a reasoning field (extra tokens). Have to see whether to remove it or not.
             verdict: JudgeVerdict = judge_llm.invoke(messages)
+        except (OutputParserException, ValidationError) as e:
+            # The model's output didn't fit the required schema (bad JSON or wrong
+            # shape) — its own fault, so feed the error back and let it correct.
+            log.warning("judge.parse_failed", error=str(e), attempt=attempt + 1)
+            messages.append(HumanMessage(
+                "Your previous reply could not be parsed into the required schema. "
+                f"Error: {e}. Reply with ONLY valid JSON of the form "
+                + '{"reasoning": "<your reasoning>", "matched_ids": ["<id>", ...]} and nothing else.'
+            ))
+            continue
         except Exception as e:
+            # Transient/infra (rate limit, timeout, network): not the model's fault
+            # and nothing to feed back — bail with whatever's valid so far.
             log.error("judge.invoke.failed", error=str(e), error_type=type(e).__name__)
             return valid
         valid, hallucinated = validate_ids(verdict.matched_ids, candidate_ids)
@@ -183,7 +197,6 @@ def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orc
             matched_ids = set(_judge_matches(keyword_params, passers))
             matched = [p for p in passers if p.get("canonical_id") in matched_ids]
             non_matched = [p for p in passers if p.get("canonical_id") not in matched_ids]
-            print("Non matched", non_matched)
         else:
             # filter-only query → the filter passers ARE the matches (no LLM needed)
             matched, non_matched = passers, []

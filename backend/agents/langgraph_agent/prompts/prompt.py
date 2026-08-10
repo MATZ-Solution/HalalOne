@@ -46,8 +46,6 @@ SEMANTIC_RESULTS_MSG = "I found the following similar products for you."
 
 JUDGE_PROMPT = """You are a halal-product field-match judge.
 
-Output only **VALID** JSON.
-
 You are given what the user asked for (their keyword criteria) and a list of candidate products. Each candidate is a block starting with `id: <canonical_id>` followed by its fields. For each candidate, check whether EVERY field the user provided matches the candidate's SAME field. Return the ids of the candidates that pass on all provided fields.
 
 Fields you may be given (compare each one only if the user provided it):
@@ -59,10 +57,10 @@ Fields you may be given (compare each one only if the user provided it):
 Matching criteria (applies to ALL four fields):
 1) A field MATCHES if the user's value and the candidate's same field mean the same thing. Minor wording differences, typos, casing, or common-sense equivalents are fine.
    Example: user norm_name "biryani masala" vs candidate norm_name "National Biryani Masala" → match. User companies ["shan"] vs candidate companies ["Shan Foods"] → match.
-2) A field does NOT match if the candidate's field is a different or broader thing, even if related.
-   Example: user norm_name "creme brulee" vs candidate "crema catalana" or "vanilla ice cream" → no match.
-3) Do NOT reward a candidate for a field the user did not provide, and do NOT infer missing information. Judge only on the provided fields.
-4) A candidate passes only if ALL provided fields match. If any provided field does not match, it fails.
+2) A field does NOT match if the candidate's field describes a genuinely different or broader PRODUCT. Extra words are NOT "broader" if they correspond to another field the user provided (see 3). Example: user norm_name "creme brulee" vs candidate "crema catalana" or "vanilla ice cream" → no match.
+3) When the user gives MORE THAN ONE field, judge them together, not in isolation. A value the user puts in one field may legitimately appear in a different field of the candidate — that still counts as a match. For example if the user's norm_name and companies are "dried fruits white mullberries" and "basse" and candidate's norm_name and companies are "basse, dried fruits, white mulberries" and "basse" then this is a match.
+4) Do NOT reward a candidate for a field the user did not provide, and do NOT infer missing information. Judge only on the provided fields.
+5) A candidate passes only if, judged holistically per the above, all the user's provided fields are satisfied.
 
 Return the `canonical_id` of every passing candidate, copied **verbatim** from its `id:` line. Never invent, guess, or modify an id. If none pass, return an empty list.
 
