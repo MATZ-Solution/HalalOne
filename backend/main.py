@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextlib
 import chat_store
+from datetime import datetime, timezone
 from log.logger import logger, log
 from log.process import logged_process
 from structlog.contextvars import bind_contextvars
@@ -156,7 +157,11 @@ def _rows_to_history(rows: list[dict]) -> list[dict]:
         if r["role"] == "user":
             history.append({"id": r.get("id"), "role": "user", "content": r["content"]})
         else:
-            history.append({"id": r.get("id"), "role": "assistant", "content": json.dumps({"response": r["content"], "documents": r.get("search_results", [])})})
+            # search_results is the new {matched, relevant} split OR (old rows) a
+            # flat list. The agent only needs a merged blob, so flatten either shape.
+            sr = r.get("search_results") or []
+            documents = (sr.get("matched", []) + sr.get("relevant", [])) if isinstance(sr, dict) else sr
+            history.append({"id": r.get("id"), "role": "assistant", "content": json.dumps({"response": r["content"], "documents": documents})})
     return history
 
 
@@ -226,7 +231,11 @@ async def _stream_and_persist(
             if chunk.get("type") == "results":
                 try:
                     response = chunk.get("response", "")
-                    documents = chunk.get("documents") or []
+                    matched = chunk.get("matched") or []
+                    relevant = chunk.get("relevant") or []
+                    # Merged list for the agent context cache (the agent only needs
+                    # the products as a flat blob); the DB keeps the split for display.
+                    documents = chunk.get("documents") or (matched + relevant)
                     # Ensure the user message is written (and ordered) before the
                     # assistant one. Best-effort: a failed user write is logged but
                     # doesn't sink the answer we already generated.
@@ -235,7 +244,9 @@ async def _stream_and_persist(
                             await pending_user_persist
                         except Exception as e:
                             log.error("ws.user_message.persist_failed", error=str(e), error_type=type(e).__name__)
-                    msg_id = await chat_store.insert_message(session_id, "assistant", response, documents)
+                    # Persist the matched/relevant split (frontend display source of
+                    # truth). JSONB column, so no schema change.
+                    msg_id = await chat_store.insert_message(session_id, "assistant", response, {"matched": matched, "relevant": relevant})
                     # Carry the DB id so a client that already loaded this message
                     # via chat_history can drop the duplicate instead of appending
                     # the same answer twice.
@@ -312,6 +323,17 @@ async def run_prompt_pipeline(session_id: str, user_id: str, prompt: str, image_
                 title, description = "New Chat", "This is a new chat"
             await chat_store.create_session(session_id, user_id, title, description)
             await mark_session_known(session_id)
+            # Push the new session so the sidebar shows it immediately (the client
+            # only fetched the session list once on connect, before this existed).
+            await publish_chunk(user_id, session_id, {
+                "type": "session_created",
+                "session": {
+                    "session_id": session_id,
+                    "title": title,
+                    "description": description,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+            })
             await clear_history(session_id)   # brand-new session: no prior context
             await clear_summary(session_id)
             await clear_compaction(session_id)

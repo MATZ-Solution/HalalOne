@@ -10,7 +10,7 @@ from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict, FinalR
 from ..LLMs.llm import extracter_llm, final_extracter_llm, standard_llm, judge_llm
 from ..prompts.prompt import (
     CLASSIFICATION_PROMPT, SEARCH_PROMPT, FINAL_RESPONSE_PROMPT, JUDGE_PROMPT,
-    NO_EXACT_SIMILAR_MSG, NO_RESULTS_MSG,
+    NO_EXACT_SIMILAR_MSG, NO_RESULTS_MSG, SEMANTIC_RESULTS_MSG,
 )
 from ..tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
 from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id
@@ -253,7 +253,9 @@ def response_node(state: SearchAgentState) -> dict:
     if matched:
         response = ""
     elif relevant:
-        response = NO_EXACT_SIMILAR_MSG
+        # semantic-first query wanted "similar", so don't apologise for missing
+        # exact matches the user never asked for.
+        response = SEMANTIC_RESULTS_MSG if state.get("first_tool") == SemanticFilterSearch.name else NO_EXACT_SIMILAR_MSG
     elif state.get("classification") == "search":
         response = NO_RESULTS_MSG
     else:

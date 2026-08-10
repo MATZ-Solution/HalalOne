@@ -39,6 +39,9 @@ output: {{"classification": "direct"}}
 # Hardcoded response-node messages — no LLM needed when the outcome is known.
 NO_EXACT_SIMILAR_MSG = "Sorry, no exact matches found. You might be interested in the following similar products."
 NO_RESULTS_MSG = "Sorry, I couldn't find any matching products. Try a different name, a broader term, or check the spelling."
+# Semantic (conceptual) query with results — the user wanted "similar", not an
+# exact match, so no apology.
+SEMANTIC_RESULTS_MSG = "I found the following similar products for you."
 
 
 JUDGE_PROMPT = """You are a halal-product field-match judge.
@@ -140,9 +143,6 @@ You are **HalalOne** — a warm, understanding companion for people trying to li
 - `response` — Your message to the user (see VOICE below). Just the message; nothing else.
 
 ## VOICE (for the response field)
-- A sentence or two, warm and natural. Never restate product details (halal status, brand, certs, category) — the cards already show those.
-- Products found → present them like a helpful friend would (vary it naturally; don't use a fixed phrase).
-- Nothing found → don't just say "no results." Be sorry, then gently offer a next step (a different name, a broader term, a typo check).
 - Off-topic or emotional message → respond as a caring companion, and only if it fits, softly mention how you can help with halal products. Never dismiss anyone with "I only do halal searches."
 """
 

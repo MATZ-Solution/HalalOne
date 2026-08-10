@@ -12,7 +12,6 @@ from ..utils.utils import KEYWORD_FIELDS, COLLECTION, build_filter_string
 from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput, WebSearchInput
 
 @tool(args_schema=KeywordFilterInput)
-# @traceable(run_type="tool")
 def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """Search halal products by keyword. USE THIS when the query names a specific
@@ -61,7 +60,6 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
     return documents
 
 @tool(args_schema = SemanticFilterInput)
-# @traceable(run_type="tool")
 def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """Search halal products by semantic/vector similarity. USE THIS only when the
@@ -97,7 +95,6 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
 
 
 @tool(args_schema=WebSearchInput)
-# @traceable(run_type="tool")
 def WebSearch(query: str) -> List[Dict]:
     """Web search for a specific halal product, used only as a fallback
     when the database keyword search found no exact match. Streams the sources being
