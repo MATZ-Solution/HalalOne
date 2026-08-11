@@ -135,6 +135,33 @@ def _compact_for_judge(product: dict, fields: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _bad_output_feedback(e: Exception) -> str | None:
+    """If the exception is a malformed-output error the model can fix, return a
+    correction message to feed back; otherwise None (a transient/infra error to
+    bail on). Covers client-side parse/validation failures AND Groq's server-side
+    json_validate_failed (raised as a BadRequestError, so the other two never see
+    it)."""
+    is_client = isinstance(e, (OutputParserException, ValidationError))
+    is_groq_json = isinstance(e, groq.APIError) and "json_validate_failed" in str(e)
+    if not (is_client or is_groq_json):
+        return None
+    # Groq stashes the model's own broken text in the error body — echo it back so
+    # it can see exactly what to fix. `.body` is the parsed error dict; its shape
+    # varies by SDK version ({"error": {...}} or the flat {...}), so unwrap either.
+    failed = ""
+    if isinstance(e, groq.APIError):
+        body = getattr(e, "body", None)
+        err = body.get("error", body) if isinstance(body, dict) else {}
+        failed = err.get("failed_generation", "") if isinstance(err, dict) else ""
+    return (
+        "Your previous reply was not valid against the required schema"
+        + (f". You returned:\n{failed}\n" if failed else ". ")
+        + "Reply with ONLY valid JSON of the form "
+        + '{"reasoning": "<short reasoning>", "matched_ids": ["<id>", ...]} and nothing else. '
+        + "Make sure every string is closed and the JSON is complete."
+    )
+
+
 def _judge_matches(keyword_params: dict, candidates: list) -> list:
     """LLM-as-judge: ids of the candidates that exactly match the user's keyword
     criteria. Re-asks with feedback if it invents ids, then keeps only valid ones."""
@@ -157,17 +184,14 @@ def _judge_matches(keyword_params: dict, candidates: list) -> list:
         try:
             # the judge llm is also emitting a reasoning field (extra tokens). Have to see whether to remove it or not.
             verdict: JudgeVerdict = judge_llm.invoke(messages)
-        except (OutputParserException, ValidationError) as e:
-            # The model's output didn't fit the required schema (bad JSON or wrong
-            # shape) — its own fault, so feed the error back and let it correct.
-            log.warning("judge.parse_failed", error=str(e), attempt=attempt + 1)
-            messages.append(HumanMessage(
-                "Your previous reply could not be parsed into the required schema. "
-                f"Error: {e}. Reply with ONLY valid JSON of the form "
-                + '{"reasoning": "<your reasoning>", "matched_ids": ["<id>", ...]} and nothing else.'
-            ))
-            continue
         except Exception as e:
+            feedback = _bad_output_feedback(e)
+            if feedback is not None:
+                # Malformed output (bad JSON / wrong shape, client- or Groq-side) —
+                # the model's fault, so feed it back and let it correct.
+                log.warning("judge.parse_failed", error=str(e), attempt=attempt + 1)
+                messages.append(HumanMessage(feedback))
+                continue
             # Transient/infra (rate limit, timeout, network): not the model's fault
             # and nothing to feed back — bail with whatever's valid so far.
             log.error("judge.invoke.failed", error=str(e), error_type=type(e).__name__)
