@@ -4,6 +4,9 @@ from ..models.models import FilterArgs
 COLLECTION = "halal_products"
 
 KEYWORD_FIELDS = {"norm_name", "companies", "health_info", "typical_uses"}
+# Order the keyword AND-narrowing runs in: most-selective (norm_name) first, so
+# an early pass doesn't truncate the target product out of later passes.
+KEYWORD_FIELD_ORDER = ("norm_name", "companies", "typical_uses", "health_info")
 FILTER_FIELDS = {
     "category_l1", "category_l2", "halal_status", "sold_in",
     "cert_bodies", "cert_numbers", "fda_numbers", "barcodes", "marketplace",

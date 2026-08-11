@@ -8,8 +8,13 @@ from config.typesense_client import TS_CLIENT
 from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
 from collection.search.search_collection import search_collection
-from ..utils.utils import KEYWORD_FIELDS, COLLECTION, build_filter_string
+from ..utils.utils import KEYWORD_FIELD_ORDER, COLLECTION, build_filter_string
 from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput, WebSearchInput
+
+# Keyword AND-narrowing limits: wide for the intermediate passes (so the target
+# survives), small for the final pass (the returned exact-match set).
+NARROW_KEYWORD_LIMIT = 250
+FINAL_KEYWORD_LIMIT = 10
 
 @tool(args_schema=KeywordFilterInput)
 def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
@@ -31,7 +36,10 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
         k: v for k, v in (dict(filter_args) if filter_args else {}).items()
         if v
     }
-    valid = {k: v for k, v in keyword_args.items() if k in KEYWORD_FIELDS and v} if keyword_args else {}
+    # Iterate in KEYWORD_FIELD_ORDER (norm_name first) so the most selective field
+    # narrows first — an early field's capped result set can't truncate the target
+    # product out of the later fields' searches.
+    valid = [(k, keyword_args[k]) for k in KEYWORD_FIELD_ORDER if keyword_args and keyword_args.get(k)] if keyword_args else []
 
     if not valid and active_filters:
         return search_collection(
@@ -43,7 +51,10 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
     if not valid and not active_filters:
         return []
     documents = []
-    for k, v in valid.items():
+    for i, (k, v) in enumerate(valid):
+        # Intermediate passes only collect ids to narrow the next field, so pull a
+        # wide set (250); the final pass is the returned result, capped small (4).
+        limit = FINAL_KEYWORD_LIMIT if i == len(valid) - 1 else NARROW_KEYWORD_LIMIT
         # keyword_args is typed Dict[str, Any], so the LLM can put non-strings in it.
         # Coerce rather than assume — " ".join([123]) would raise TypeError and take
         # the whole node down with it.
@@ -53,6 +64,7 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
             query_by=k,
             collection_name=COLLECTION,
             filter_parameters=active_filters,
+            limit=limit,
         )
         # Fields are ANDed: nothing matched here means nothing can match overall, so
         # stop rather than querying the remaining fields.
@@ -155,5 +167,11 @@ def WebSearch(query: str) -> List[Dict]:
 
 
 
-result = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": "body satin foot scrub"}})
+result = KeywordFilterSearch.invoke({
+    "keyword_args":
+        {
+            "companies":["barilla"],
+            "norm_name": "pasta heart shape"
+        }
+    })
 print(result)
