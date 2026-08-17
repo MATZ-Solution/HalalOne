@@ -14,7 +14,7 @@ langsmith
 agentevals
 supabase
 httpx
-
+rapidfuzz
 valkey
 structlog
 
