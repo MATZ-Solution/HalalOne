@@ -30,7 +30,7 @@ def search_collection(query: str, query_by: str, collection_name: str, filter_pa
                     quoted = ",".join(f'"{i}"' for i in v)
                     filter_string += f'{k}:=[{quoted}]'
                 elif isinstance(v, str):
-                    filt+= f'{k}:="{v}"'
+                    filter_string += f'{k}:="{v}"'
         if filter_string:
             search_parameters['filter_by'] = filter_string
         hits = TS_CLIENT.collections[collection_name].documents.search(search_parameters)["hits"]
@@ -44,7 +44,6 @@ def search_collection(query: str, query_by: str, collection_name: str, filter_pa
         #     doc = hit['document']
         #     print(f"  [{i}] id={doc['canonical_id']} | name={doc.get('norm_name', '')[:60]}"
         #           f" | status={doc.get('halal_status', '')} | companies={doc.get('companies', [])[:2]}")
-        print(f"Number of documents: {len(documents)}, Documents: {documents}")
         return documents
 
     except Exception as e:
