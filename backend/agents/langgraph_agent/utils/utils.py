@@ -1,5 +1,6 @@
 from typing import Optional
 from ..models.models import FilterArgs
+from rapidfuzz import fuzz
 
 COLLECTION = "halal_products"
 
@@ -21,6 +22,112 @@ KEYWORD = "KeywordFilterSearch"
 SEMANTIC = "SemanticFilterSearch"
 WEB = "WebSearch"
 
+
+ALIASES = {
+    "sold_in": {
+        "usa and canada": "USA, Canada",
+        "us and canada": "USA, Canada",
+        "us & canada": "USA, Canada",
+        "s. korea": "South Korea",
+        "s korea": "South Korea",
+        "uae": "UAE",
+    },
+    "cert_bodies": {
+        # e.g. "sanha": "SANHA South Africa",
+    },
+}
+
+ 
+# Populate every enum-like field from your schema here.
+# (category_l2 omitted for brevity -- same pattern, just add the array.)
+CANONICAL_LISTS = {
+    "category_l1": [
+    "Non-food",
+    "Additive",
+    "Food",
+    "Service",
+    "Beverage",
+    "Uncategorised",
+    "Pharma",
+    "Cosmetic"
+  ],
+    "halal_status": [
+    "Mushbooh",
+    "Haram",
+    "Haraam",
+    "Halal"
+  ],
+    "cert_bodies": [
+    "HFCE",
+    "IFANCA",
+    "SANHA South Africa",
+    "HFSAA",
+    "THIDAA Taiwan",
+    "Halal.co.th Thailand",
+    "NIHT South Africa",
+    "JAKIM",
+    "HFCI India",
+    "HMA",
+    "HQC Croatia"
+  ],
+    "sold_in": [
+    "Taiwan",
+    "Mexico",
+    "India",
+    "Ecuador",
+    "Lebanon",
+    "Moroco",
+    "Taiwan and Hong Kong",
+    "USA",
+    "Singapore",
+    "Italy",
+    "South Korea",
+    "USA, Canada",
+    "Ukraine",
+    "Israel",
+    "Poland",
+    "UK",
+    "China",
+    "N/A",
+    "Egypt",
+    "South East Asia",
+    "Europe",
+    "Australia",
+    "Oman",
+    "Middle East",
+    "Philippines",
+    "Russia",
+    "Peru",
+    "Algeria",
+    "Japan",
+    "Thailand",
+    "UAE",
+    "South Africa",
+    "Indonesia",
+    "Jordan",
+    "Bahrain",
+    "Costa Rica",
+    "Malaysia",
+    "Vietnam", 
+    "Kuwait",
+    "Worldwide",
+    "Turkey",
+    "Brunei",
+    "Kazakhstan",
+    "Canada",
+    "Hong Kong",
+    "South Asia",
+    "New Zealand"
+  ],
+    "marketplace": [  
+    "FoodService - single server",
+    "Direct Marketing",
+    "Retail",
+    "FoodService - Bulk",
+    "Industry",
+    "FoodService"
+  ]
+}
 
 def select_tools(first_tool: Optional[str], tools_called: list[str]) -> list[str]:
     """The tools to bind for the next search call, enforcing the fallback ladder.
@@ -127,3 +234,69 @@ def build_filter_string(filter_args: Optional[FilterArgs]) -> str:
         else:
             parts.append(f'{k}:="{v}"')
     return " && ".join(parts)
+
+
+ 
+def canonicalize(raw_value: str, canonical_list: list, threshold: float = 85.0, aliases:dict = None):
+    """
+    Snap raw_value to the exact canonical spelling if it matches (exactly,
+    case/whitespace-insensitively, or closely enough). Otherwise return
+    raw_value unchanged so freeform values pass through untouched.
+ 
+    threshold is on rapidfuzz's 0-100 scale.
+    """
+    if not raw_value:
+        return raw_value
+ 
+    needle = raw_value.strip().lower()
+    aliases = aliases or {}
+ 
+    # 1. exact match, case/whitespace-insensitive
+    for candidate in canonical_list:
+        if candidate.strip().lower() == needle:
+            return candidate
+ 
+    if needle in aliases:
+        return aliases[needle]
+    
+    # 2. fuzzy match -- catches minor typos/paraphrase.
+    # token_sort_ratio handles word-order differences too (e.g. "Hong Kong
+    # and Taiwan" vs "Taiwan and Hong Kong"), not just character-level typos.
+    best_candidate, best_score = None, 0.0
+    for candidate in canonical_list:
+        score = fuzz.token_sort_ratio(needle, candidate.lower())
+        if score > best_score:
+            best_candidate, best_score = candidate, score
+ 
+    if best_score >= threshold:
+        return best_candidate
+ 
+    # 3. no good match -- treat as a genuinely out-of-list value
+    return raw_value
+ 
+def canonicalize_args(tool_args: dict) -> dict:
+    """Apply canonicalize() to every field that has a known canonical list."""
+    cleaned = dict(tool_args)
+    for field, value in tool_args.items():
+        if field in CANONICAL_LISTS and value:
+            cleaned[field] = canonicalize(
+                value, CANONICAL_LISTS[field], aliases=ALIASES.get(field)
+            )
+    return cleaned
+
+
+# example_lists = [
+#     {
+#         "sold_in": "morocco",        # -> matches list entry "Moroco" via fuzzy match
+#         "halal_status": "halal",     # -> "Halal" (case-insensitive exact match)
+#         "marketplace": "wholesale",  # -> not in list, passes through untouched
+#     },
+#     {
+#         "sold_in": "Taiwan HongKong",
+#         "marketplace": "Amazonyepp",
+#         "cert_bodies": "Halal.co.th"
+#     }
+#     ]
+
+# for example in example_lists:
+#     print(canonicalize_args(example))

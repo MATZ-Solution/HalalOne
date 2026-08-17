@@ -32,19 +32,14 @@ Here is the evaluation criteria to follow:
     • typical_uses
     • category_l1
     • category_l2
-    • halal_status
     • sold_in
     • cert_bodies
     • marketplace
 For Example. User asks: is e101 halal? And the model generates {{norm_name: E101}}. Or the user asks: is chocolate sanwhich from Bisconi halal? And the model generates {{norm_name: chocolate sandwhich, companies: [Bisconni]}}
 The model might automatically make common sense corrections and handle typos so they are acceptable. 
 Note: Don't account for bigger divergence between user's prompt and generated output. For Example. User asks: is e101 halal? And the model generates {{norm_name: E101 Riboflavin}} or {{norm_name: E101 Riboflavin- 5-Sodium Phosphate}}. See how the model is filling in additional information that is missing in the user's prompt.
-3) The following parameters are used for exact filtering and much match exactly to the information in the user's prompt char-by-char:
-    • cert_numbers
-    • fda_numbers
-    • barcodes
-For Example. User asks: Is the product with barcode 235726 halal? And the model generates {{barcode: [2357260000]}}. This is not acceptable. Or the user ask: Is the product with cert_number 2A22782D70 halal? And the model generates {{barcode: 2A22782D70 }}. This is acceptable. See? Exact match is the game here.
-4) The following is a query parameter and is used semantic and web Searches.
+
+3) The following is a query parameter and is used in semantic and web searches.
     • query
 The 'query' parameter should be semantically related to the user's prompt and should not contain any information that the user didn't ask for or that wasn't present in the user's prompt.
 
@@ -68,11 +63,32 @@ llm = ChatGroq(
 
 evaluator_llm = llm.with_structured_output(Grade, method="json_schema")
 
+# Reuse the agent's own ladder so the evaluator can't drift from what the agent
+# actually allows. select_tools/should_loop are the exact functions the agent binds
+# and budgets against.
+from agents.langgraph_agent.utils.utils import (
+    select_tools, KEYWORD, SEMANTIC, WEB, MAX_KEYWORD_CALLS, MAX_SEMANTIC_CALLS,
+)
 
-valid_tool_order = ["KeywordFilterSearch", "SemanticFilterSearch", "WebSearch"]
-tool_rank = {name: i for i, name in enumerate(valid_tool_order)}
+KNOWN_TOOLS = {KEYWORD, SEMANTIC, WEB}
 
-async def agent_trajectory_correctness(inputs: dict, outputs:dict) -> list[dict]:
+# These filter fields are graded by exact match against the dataset reference,
+# not by the LLM. They live inside a tool call's filter_args.
+EXACT_MATCH_FIELDS = ("halal_status", "cert_numbers", "fda_numbers", "barcodes")
+
+def _extract_exact_fields(args: dict) -> dict:
+    """The exact-match fields present in a tool call's filter_args (non-empty only)."""
+    filter_args = (args or {}).get("filter_args") or {}
+    return {f: filter_args[f] for f in EXACT_MATCH_FIELDS if filter_args.get(f) not in (None, [], "")}
+
+def _exact_match(actual, expected) -> bool:
+    """Char-by-char exact match. Lists compare order-insensitively, element by element."""
+    to_list = lambda x: [str(i) for i in x] if isinstance(x, list) else ([] if x is None else [str(x)])
+    if isinstance(actual, list) or isinstance(expected, list):
+        return sorted(to_list(actual)) == sorted(to_list(expected))
+    return str(actual) == str(expected)
+
+async def agent_trajectory_correctness(inputs: dict, outputs:dict, reference_outputs: dict = None) -> list[dict]:
     "Evaluates the agent's complete trajectory"
 
     # initialize metrics for evaluating agent's trajectory
@@ -93,20 +109,41 @@ async def agent_trajectory_correctness(inputs: dict, outputs:dict) -> list[dict]
         {"key": "toolArgsGradingErrors", "score": 0},
     ]
 
+    names = [tool['name'] for tool in called_tool_names]
+
     # all tools called are the ones we recognize
-    CorrectToolNames = all(tool['name'] in tool_rank for tool in called_tool_names)
+    CorrectToolNames = all(n in KNOWN_TOOLS for n in names)
 
-    # keep only calls that participate in the ordering contract, as their rank
-    ranks = [tool_rank[tool['name']] for tool in called_tool_names if tool['name'] in tool_rank]
-
-    # valid if ranks never decrease (no earlier-stage tool after a later-stage one)
-    CorrectToolOrder = all(ranks[i] <= ranks[i + 1] for i in range(len(ranks) - 1))
+    # Replay the agent's ladder: each call must be one the agent would allow given
+    # the tools called before it (names[:i]). first_tool (call 0) sets the branch.
+    # This accepts every valid path (key / key,web,sem / key,key,web,sem,sem / sem /
+    # sem,sem ...) and rejects the rest, without enumerating them here.
+    first_tool = names[0]
+    CorrectToolOrder = all(names[i] in select_tools(first_tool, names[:i]) for i in range(len(names)))
+    # Budget: total calls must stay within the ladder's limit (5 keyword-first,
+    # 2 semantic-first).
+    if CorrectToolOrder:
+        limit = MAX_SEMANTIC_CALLS if first_tool == SEMANTIC else MAX_KEYWORD_CALLS
+        CorrectToolOrder = len(names) <= limit
 
     correctness = []
     grading_errors = []
+    reasons = []  # per-tool reasoning, shown as the toolArgsCorrectness comment
 
     for tool in called_tool_names:
-        # now checking correct tool arguments - use LLM as a judge
+        # Exact-match check for the deterministic fields first. If the tool provides
+        # any of them and they don't match the dataset reference, fail early (no LLM).
+        exact_fields = _extract_exact_fields(tool['args'])
+        if exact_fields:
+            ref = reference_outputs or {}
+            mismatched = {k: v for k, v in exact_fields.items() if not _exact_match(v, ref.get(k))}
+            if mismatched:
+                correctness.append(False)
+                reasons.append(f"{tool['name']}: exact-match failed — " + ", ".join(
+                    f"{k}=got {v!r} expected {ref.get(k)!r}" for k, v in mismatched.items()))
+                continue
+
+        # now checking the rest of the arguments - use LLM as a judge
         user_message = f"""USER PROMPT: {inputs['question']}
         TOOL CALL: {tool['args']}
         """
@@ -116,12 +153,13 @@ async def agent_trajectory_correctness(inputs: dict, outputs:dict) -> list[dict]
             grading_errors.append({"tool": tool.get("name"), "error": str(e)})
             continue
         correctness.append(grade.is_correct)
-    
+        reasons.append(f"{tool['name']}: {grade.reasoning}")
+
     CorrectToolArguments = all(correctness) if correctness else True
-    
+
     return [
         {"key": "toolNameCorrectness", "score": CorrectToolNames},
         {"key": "toolOrderCorrectness", "score": CorrectToolOrder},
-        {"key": "toolArgsCorrectness", "score": CorrectToolArguments},
-        {"key": "toolArgsGradingErrors", "score": len(grading_errors)},
+        {"key": "toolArgsCorrectness", "score": CorrectToolArguments, "comment": "\n\n".join(reasons)},
+        {"key": "toolArgsGradingErrors", "score": len(grading_errors), "comment": "\n".join(str(e) for e in grading_errors)},
     ]

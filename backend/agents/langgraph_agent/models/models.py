@@ -2,7 +2,7 @@ import operator
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from langchain.messages import AnyMessage
-from typing import List, TypedDict, Annotated
+from typing import List, TypedDict, Annotated, Literal
 
 
 # main search agent state
@@ -67,7 +67,6 @@ class OutputSchema(BaseModel):
     verified: bool = True
     grounding: Optional[List[Dict[str, Any]]] = None
 
-
 class WebSearchInput(BaseModel):
     query: str = Field(
         description=(
@@ -75,7 +74,6 @@ class WebSearchInput(BaseModel):
             "about. Use only after the database search tools found nothing relevant."
         )
     )
-
 
 class FinalAnswerInput(BaseModel):
     response: str = Field(
@@ -89,7 +87,6 @@ class FinalAnswerInput(BaseModel):
             "Empty list if no products were found or the query is irrelevant."
         ),
     )
-
 
 class SelectedProducts(BaseModel):
     """What the final LLM returns: a message plus the ids of the relevant
@@ -123,7 +120,6 @@ class JudgeVerdict(BaseModel):
         ),
     )
 
-
 class FinalResponse(BaseModel):
     """Response node output: only the natural-language message. Products are
     attached deterministically (already split into matched/relevant)."""
@@ -138,6 +134,7 @@ class FilterArgs(BaseModel):
     category_l1: Optional[str] = None
     category_l2: Optional[str] = None
     halal_status: Optional[str] = None
+    halal_status: Optional[Literal["Halal", "Haram", "Haraam", "Mushbooh"]] = None
     
     # List fields. Like the string fields above these default to None, meaning "the LLM
     # did not supply this filter" — build_filter_string and KeywordFilterSearch both skip

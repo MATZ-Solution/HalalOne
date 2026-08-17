@@ -25,14 +25,90 @@ TOOLS_BY_NAME = {t.name: t for t in [KeywordFilterSearch, SemanticFilterSearch, 
 # candidate pool (hallucinated), before falling back to the valid ids only.
 JUDGE_MAX_RETRIES = 2
 
+# Re-ask the classifier at most this many times if it returns malformed JSON or a
+# label outside VALID_CLASSES, before defaulting to `search`.
+CLASSIFY_MAX_RETRIES = 2
+VALID_CLASSES = ("search", "direct")
+
+
+def _is_bad_output(e: Exception) -> bool:
+    """True if the exception is a malformed-output error the model can fix (client-side
+    parse/validation OR Groq's server-side json_validate_failed), vs a transient/infra
+    error (rate limit, timeout, network) to bail on."""
+    is_client = isinstance(e, (OutputParserException, ValidationError))
+    is_groq_json = isinstance(e, groq.APIError) and "json_validate_failed" in str(e)
+    return is_client or is_groq_json
+
+
+def _failed_generation(e: Exception) -> str:
+    """The model's own broken text, if Groq stashed it in the error body (else "").
+    `.body` is the parsed error dict; its shape varies by SDK version
+    ({"error": {...}} or the flat {...}), so unwrap either."""
+    if isinstance(e, groq.APIError):
+        body = getattr(e, "body", None)
+        err = body.get("error", body) if isinstance(body, dict) else {}
+        return err.get("failed_generation", "") if isinstance(err, dict) else ""
+    return ""
+
+
+def _classify_feedback(e: Exception) -> str | None:
+    """Correction to feed the classifier after a malformed reply, else None (a
+    transient/infra error to bail on)."""
+    if not _is_bad_output(e):
+        return None
+    failed = _failed_generation(e)
+    return (
+        "Your previous reply was not valid JSON"
+        + (f". You returned:\n{failed}\n" if failed else ". ")
+        + 'Reply with ONLY valid JSON of the form {"classification": "search"} or '
+        + '{"classification": "direct"} and nothing else.'
+    )
+
 
 def classify_intent(state: SearchAgentState) -> Command[Literal["search_node", "response_node"]]:
-    """Use an llm to classify user's intent from prompt: search or direct."""
+    """Use an llm to classify user's intent from prompt: search or direct.
+
+    json_mode parses the reply but does NOT enforce the schema's enum, so the model
+    can return malformed JSON or a label outside VALID_CLASSES. Mirroring judge_node,
+    we re-ask with feedback in both cases (and bail on transient/infra errors),
+    defaulting to `search` if we never get a valid label — safer to run a search than
+    to drop a real product query."""
 
     structured_llm = extracter_llm.with_structured_output(classify_intent_schema, method='json_mode')
     messages = [SystemMessage(CLASSIFICATION_PROMPT)] + state["messages"]
-    result = structured_llm.invoke(messages)
-    classification = result.get("classification")
+
+    classification = None
+    for attempt in range(CLASSIFY_MAX_RETRIES + 1):
+        try:
+            result = structured_llm.invoke(messages)
+        except Exception as e:
+            feedback = _classify_feedback(e)
+            if feedback is None:
+                # transient/infra (rate limit, timeout, network): not the model's
+                # fault and nothing to feed back — bail to the safe default.
+                log.error("classify.invoke.failed", error=str(e), error_type=type(e).__name__)
+                break
+            # malformed output (bad JSON, client- or Groq-side) — feed it back.
+            log.warning("classify.parse_failed", error=str(e), attempt=attempt + 1)
+            messages.append(HumanMessage(feedback))
+            continue
+
+        classification = result.get("classification")
+        if classification in VALID_CLASSES:
+            break
+        # valid JSON but a label json_mode never enforced — echo it back and correct.
+        log.warning("classify.invalid_value", value=classification, attempt=attempt + 1)
+        messages.append(AIMessage(content=json.dumps({"classification": classification})))
+        messages.append(HumanMessage(
+            f'"{classification}" is not one of the allowed values. Reply with ONLY '
+            '{"classification": "search"} or {"classification": "direct"} and nothing else.'
+        ))
+
+    if classification not in VALID_CLASSES:
+        # exhausted retries or bailed on an infra error: default to search.
+        log.warning("classify.defaulted", classification=classification)
+        classification = "search"
+
     goto = "response_node" if classification == "direct" else "search_node"
     return Command(update={"classification": classification}, goto=goto)
 
@@ -141,18 +217,11 @@ def _bad_output_feedback(e: Exception) -> str | None:
     bail on). Covers client-side parse/validation failures AND Groq's server-side
     json_validate_failed (raised as a BadRequestError, so the other two never see
     it)."""
-    is_client = isinstance(e, (OutputParserException, ValidationError))
-    is_groq_json = isinstance(e, groq.APIError) and "json_validate_failed" in str(e)
-    if not (is_client or is_groq_json):
+    if not _is_bad_output(e):
         return None
     # Groq stashes the model's own broken text in the error body — echo it back so
-    # it can see exactly what to fix. `.body` is the parsed error dict; its shape
-    # varies by SDK version ({"error": {...}} or the flat {...}), so unwrap either.
-    failed = ""
-    if isinstance(e, groq.APIError):
-        body = getattr(e, "body", None)
-        err = body.get("error", body) if isinstance(body, dict) else {}
-        failed = err.get("failed_generation", "") if isinstance(err, dict) else ""
+    # it can see exactly what to fix.
+    failed = _failed_generation(e)
     return (
         "Your previous reply was not valid against the required schema"
         + (f". You returned:\n{failed}\n" if failed else ". ")

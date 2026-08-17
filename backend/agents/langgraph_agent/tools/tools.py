@@ -16,6 +16,10 @@ from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput,
 NARROW_KEYWORD_LIMIT = 250
 FINAL_KEYWORD_LIMIT = 10
 
+K = 8
+FLAT_SEARCH_CUTOFF = 20
+DISTANCE_THRESHOLD = 0.3
+
 @tool(args_schema=KeywordFilterInput)
 def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
@@ -95,19 +99,29 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
     # failure in this tool, not escape and fail the whole node.
     try:
         embedding = embedding_model.embed_query(semantic_query)
+        # have to see whether this method of stringifying vector embeddings is correct or not
         embedding_str = ",".join(map(str, embedding))
+
+        filter_str = build_filter_string(filter_args)
+
+        if filter_str:
+            vector_query = (
+                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K}"
+                f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF})"
+            )
+        else:
+            vector_query = f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K})"
+
         params: Dict[str, Any] = {
             "collection": COLLECTION,
             "q": "*",
-            "vector_query": f"embedding:([{embedding_str}], k:10)",
-            "per_page": 10,
+            "vector_query": vector_query,
+            "per_page": K,
             "exclude_fields": "embedding",
         }
 
-        filter_str = build_filter_string(filter_args)
         if filter_str:
             params["filter_by"] = filter_str
-
         result = TS_CLIENT.multi_search.perform({"searches": [params]}, {})
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
@@ -167,11 +181,16 @@ def WebSearch(query: str) -> List[Dict]:
 
 
 
-result = KeywordFilterSearch.invoke({
-    "keyword_args":
-        {
-            "companies":["barilla"],
-            "norm_name": "pasta heart shape"
-        }
-    })
-print(result)
+# result = KeywordFilterSearch.invoke({
+#     "keyword_args":
+#         {
+#             "companies":["barilla"],
+#             "norm_name": "pasta heart shape"
+#         }
+#     })
+# print(result)
+
+
+results = SemanticFilterSearch.invoke({"semantic_query": "High-protein foods good for building muscle"})
+
+print(results)
