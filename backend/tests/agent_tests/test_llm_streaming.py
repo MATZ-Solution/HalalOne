@@ -60,7 +60,7 @@ class TestLLMConfig:
     def test_extracter_llm_model(self):
         from agents.langgraph_agent.LLMs.llm import extracter_llm
 
-        assert extracter_llm.model == "llama-3.1-8b-instant"
+        assert extracter_llm.model == "openai/gpt-oss-20b"
 
     def test_extracter_llm_is_deterministic_and_bounded(self):
         from agents.langgraph_agent.LLMs.llm import extracter_llm
@@ -81,7 +81,7 @@ class TestLLMConfig:
     def test_summarizer_llm_model(self):
         from agents.langgraph_agent.LLMs.llm import summarizer_llm
 
-        assert summarizer_llm.model == "llama-3.3-70b-versatile"
+        assert summarizer_llm.model == "openai/gpt-oss-20b"
 
     def test_all_llms_run_at_zero_temperature(self):
         from langchain_core.language_models.chat_models import BaseChatModel

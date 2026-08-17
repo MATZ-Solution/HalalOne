@@ -43,7 +43,7 @@ if not CEREBRAS_API_KEY:
 
 extracter_llm = ChatGroq(
     api_key = GROQ_API_KEY,
-    model = "llama-3.1-8b-instant",    
+    model = "openai/gpt-oss-20b",    
     temperature = 0,
     max_tokens = 300
 )
@@ -64,7 +64,7 @@ standard_llm = ChatGroq(
 # use a smaller llm for summarizing conversation histories
 summarizer_llm = ChatGroq(
     api_key = GROQ_API_KEY,
-    model = "llama-3.3-70b-versatile",
+    model = "openai/gpt-oss-20b",
     temperature = 0
 )
 
