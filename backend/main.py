@@ -718,7 +718,6 @@ async def websocket_endpoint(
                 else:
                     await publish_chunk(user_id, session_id, {"type": "results", "response": "No product information found from the image, please try again.", "documents": []})
                     return
-
                 try:
                     decoded_image = base64.b64decode(base64_data)
                 except Exception:

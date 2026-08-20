@@ -4,13 +4,16 @@ import asyncio
 from evaluations.datasets.trajectory_dataset import dataset_name as trajectory_dataset_name
 from evaluations.datasets.classification_dataset import dataset_name as classification_dataset_name
 from evaluations.datasets.retrieval_relevance_dataset import dataset_name as retrieval_relevance_dataset_name
+from evaluations.datasets.judge_node_dataset import dataset_name as judge_node_dataset_name, variant_dataset_name
 # Evaluators
 from evaluations.target_functions.search_trajectory import run_search_node
 from evaluations.target_functions.intent_classifier import run_intent_classifier
 from evaluations.target_functions.retrieval_relevance import run_retrieval_relevance
+from evaluations.target_functions.judge_node import run_judge_node
 from evaluations.evaluators.classification_correctness import correct_classification
 from evaluations.evaluators.trajectory_correctness import agent_trajectory_correctness
 from evaluations.evaluators.retrieval_relevance import retrieval_relevance
+from evaluations.evaluators.judge_node_evaluator import judge_node_evaluator
 
 
 # Evaluates Node 1 — intent classification: does the agent route each prompt to the correct branch (search_node vs response_node)?
@@ -49,6 +52,20 @@ async def run_retrieval_relevance_evaluation():
     )
 
 
+# Evaluates judge_node in isolation — given the user's keyword criteria and a
+# candidate blob, does the LLM field-match judge return EXACTLY the expected set of
+# matching canonical_ids? Exact set match scores 1; any missed/extra id scores 0.
+async def run_judge_node_evaluation():
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_judge_node,
+        data=variant_dataset_name,
+        evaluators=[judge_node_evaluator],
+        experiment_prefix="experiment-halal-one-judge-node 1.0",
+    )
+
+
 # asyncio.run(run_classification_evaluation())
 # asyncio.run(run_trajectory_evaluation())
-asyncio.run(run_retrieval_relevance_evaluation())
+# asyncio.run(run_retrieval_relevance_evaluation())
+asyncio.run(run_judge_node_evaluation())

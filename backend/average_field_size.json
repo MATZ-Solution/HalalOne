@@ -1,0 +1,128 @@
+{
+  "canonical_id": {
+    "total_bytes": 2452044,
+    "count": 204337,
+    "max_bytes": 12,
+    "min_bytes": 12,
+    "total_items": 204337,
+    "avg_bytes": 12.0,
+    "avg_bytes_per_item": 12.0
+  },
+  "norm_name": {
+    "total_bytes": 9149647,
+    "count": 204337,
+    "max_bytes": 4714,
+    "min_bytes": 1,
+    "total_items": 204337,
+    "avg_bytes": 44.77724053891366,
+    "avg_bytes_per_item": 44.77724053891366
+  },
+  "companies": {
+    "total_bytes": 14661248,
+    "count": 204102,
+    "max_bytes": 276,
+    "min_bytes": 2,
+    "total_items": 232952,
+    "avg_bytes": 71.83294627196206,
+    "avg_bytes_per_item": 62.93677667502318
+  },
+  "cert_bodies": {
+    "total_bytes": 1759013,
+    "count": 204337,
+    "max_bytes": 20,
+    "min_bytes": 3,
+    "total_items": 209594,
+    "avg_bytes": 8.608392019066542,
+    "avg_bytes_per_item": 8.392477838106053
+  },
+  "typical_uses": {
+    "total_bytes": 3516,
+    "count": 64,
+    "max_bytes": 46,
+    "min_bytes": 3,
+    "total_items": 290,
+    "avg_bytes": 54.9375,
+    "avg_bytes_per_item": 12.124137931034483
+  },
+  "marketplace": {
+    "total_bytes": 43473,
+    "count": 4672,
+    "max_bytes": 27,
+    "min_bytes": 6,
+    "total_items": 4783,
+    "avg_bytes": 9.305008561643836,
+    "avg_bytes_per_item": 9.089065440100356
+  },
+  "category_l1": {
+    "total_bytes": 1454710,
+    "count": 204337,
+    "max_bytes": 13,
+    "min_bytes": 4,
+    "total_items": 204337,
+    "avg_bytes": 7.119170781600983,
+    "avg_bytes_per_item": 7.119170781600983
+  },
+  "category_l2": {
+    "total_bytes": 2217829,
+    "count": 204337,
+    "max_bytes": 23,
+    "min_bytes": 5,
+    "total_items": 204337,
+    "avg_bytes": 10.853780764129844,
+    "avg_bytes_per_item": 10.853780764129844
+  },
+  "halal_status": {
+    "total_bytes": 1024691,
+    "count": 204337,
+    "max_bytes": 8,
+    "min_bytes": 5,
+    "total_items": 204337,
+    "avg_bytes": 5.014710992135541,
+    "avg_bytes_per_item": 5.014710992135541
+  },
+  "sold_in": {
+    "total_bytes": 1184116,
+    "count": 146179,
+    "max_bytes": 20,
+    "min_bytes": 2,
+    "total_items": 147618,
+    "avg_bytes": 8.100452185334419,
+    "avg_bytes_per_item": 8.02148789443022
+  },
+  "cert_numbers": {
+    "total_bytes": 1485606,
+    "count": 48221,
+    "max_bytes": 15,
+    "min_bytes": 2,
+    "total_items": 115060,
+    "avg_bytes": 30.808278550838846,
+    "avg_bytes_per_item": 12.91157656874674
+  },
+  "health_info": {
+    "total_bytes": 803921,
+    "count": 13819,
+    "max_bytes": 2733,
+    "min_bytes": 1,
+    "total_items": 16398,
+    "avg_bytes": 58.17504884579203,
+    "avg_bytes_per_item": 49.02555189657275
+  },
+  "fda_numbers": {
+    "total_bytes": 563479,
+    "count": 21463,
+    "max_bytes": 93,
+    "min_bytes": 1,
+    "total_items": 38675,
+    "avg_bytes": 26.253506033639287,
+    "avg_bytes_per_item": 14.569592760180996
+  },
+  "barcodes": {
+    "total_bytes": 149640,
+    "count": 6010,
+    "max_bytes": 99,
+    "min_bytes": 1,
+    "total_items": 11387,
+    "avg_bytes": 24.898502495840265,
+    "avg_bytes_per_item": 13.14130148414859
+  }
+}

@@ -4,10 +4,10 @@ from rapidfuzz import fuzz
 
 COLLECTION = "halal_products"
 
-KEYWORD_FIELDS = {"norm_name", "companies", "health_info", "typical_uses"}
+KEYWORD_FIELDS = {"norm_name", "companies"}
 # Order the keyword AND-narrowing runs in: most-selective (norm_name) first, so
 # an early pass doesn't truncate the target product out of later passes.
-KEYWORD_FIELD_ORDER = ("norm_name", "companies", "typical_uses", "health_info")
+KEYWORD_FIELD_ORDER = ("norm_name", "companies")
 FILTER_FIELDS = {
     "category_l1", "category_l2", "halal_status", "sold_in",
     "cert_bodies", "cert_numbers", "fda_numbers", "barcodes", "marketplace",
@@ -50,6 +50,62 @@ CANONICAL_LISTS = {
     "Uncategorised",
     "Pharma",
     "Cosmetic"
+  ],
+  "category_l2": [
+    "Travel",
+    "Producer / Manufacturer",
+    "Antioxidant",
+    "Sweetener",
+    "Bakery",
+    "Preservative",
+    "Vegetable Oil",
+    "Pharmaceutical",
+    "Herbal Medicine",
+    "General Cosmetic",
+    "Restaurant",
+    "Health Product",
+    "Cleaning Product",
+    "Capsule",
+    "Soy Ingredient",
+    "Hospitality",
+    "Fresh Produce",
+    "Education",
+    "Baby & Infant",
+    "Juice",
+    "Medical",
+    "Nutritional Supplement",
+    "Colorant",
+    "Sauce & Paste",
+    "Makeup",
+    "Meat & Poultry",
+    "Syrup & Concentrate",
+    "Water",
+    "Botanical Extract",
+    "Seafood",
+    "Nuts & Seeds",
+    "Dairy",
+    "Retail",
+    "Fragrance",
+    "Snacks & Confectionery",
+    "Enzyme & Probiotic",
+    "Condiment & Spice",
+    "General Business",
+    "Unknown",
+    "Personal Care",
+    "General Beverage",
+    "Egg Products",
+    "Skin Care",
+    "Vitamin",
+    "Flavoring",
+    "Hair Care",
+    "Wellness",
+    "Dairy Ingredient",
+    "General Non-food",
+    "Emulsifier",
+    "Tea & Coffee",
+    "General Food",
+    "Chemical",
+    "Food Additive"
   ],
     "halal_status": [
     "Mushbooh",
@@ -153,6 +209,20 @@ def should_loop(first_tool: Optional[str], tools_called_count: int) -> bool:
     """Whether the search loop may run another tool call, given the budget."""
     limit = MAX_SEMANTIC_CALLS if first_tool == SEMANTIC else MAX_KEYWORD_CALLS
     return tools_called_count < limit
+
+def _compact_for_judge(product: dict, fields: list[str]) -> str:
+    """One compact block per candidate for the judge: id + only the given fields.
+    Keeps the prompt small and stops the judge matching on fields the user never
+    provided."""
+    lines = [f"id: {product.get('canonical_id')}"]
+    for field in fields:
+        value = product.get(field)
+        if not value:
+            continue
+        if isinstance(value, list):
+            value = ", ".join(str(v) for v in value)
+        lines.append(f"{field}: {value}")
+    return "\n".join(lines)
 
 
 def validate_ids(returned_ids: list[str], candidate_ids: list[str]) -> tuple[list[str], list[str]]:

@@ -12,11 +12,11 @@ from langchain.messages import SystemMessage, HumanMessage, ToolMessage, AIMessa
 from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict, FinalResponse, classify_intent_schema
 from ..LLMs.llm import extracter_llm, final_extracter_llm, standard_llm, judge_llm
 from ..prompts.prompt import (
-    CLASSIFICATION_PROMPT, SEARCH_PROMPT, FINAL_RESPONSE_PROMPT, JUDGE_PROMPT,
+    CLASSIFICATION_PROMPT, build_search_prompt, FINAL_RESPONSE_PROMPT, JUDGE_PROMPT,
     NO_EXACT_SIMILAR_MSG, NO_RESULTS_MSG, SEMANTIC_RESULTS_MSG,
 )
 from ..tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
-from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id
+from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id, _compact_for_judge
 
 
 TOOLS_BY_NAME = {t.name: t for t in [KeywordFilterSearch, SemanticFilterSearch, WebSearch]}
@@ -128,7 +128,8 @@ def search_node(state: SearchAgentState) -> dict:
     # holds; with a single tool bound it's effectively forced to that one.
     llm_with_tools = standard_llm.bind_tools(tools, tool_choice="any")
     try:
-        result = llm_with_tools.invoke([SystemMessage(SEARCH_PROMPT)] + state["messages"])
+        # Prompt is built for exactly the bound tools; static prefix stays cacheable.
+        result = llm_with_tools.invoke([SystemMessage(build_search_prompt(names))] + state["messages"])
     except Exception as e:
         # Groq raises "Tool choice is required, but model did not call a tool" when
         # the forced model declines to search (e.g. a 2nd semantic retry it deems
@@ -195,20 +196,6 @@ def tool_node(state: SearchAgentState) -> dict:
         update["filters"] = filters
     return update
 
-
-def _compact_for_judge(product: dict, fields: list[str]) -> str:
-    """One compact block per candidate for the judge: id + only the given fields.
-    Keeps the prompt small and stops the judge matching on fields the user never
-    provided."""
-    lines = [f"id: {product.get('canonical_id')}"]
-    for field in fields:
-        value = product.get(field)
-        if not value:
-            continue
-        if isinstance(value, list):
-            value = ", ".join(str(v) for v in value)
-        lines.append(f"{field}: {value}")
-    return "\n".join(lines)
 
 
 def _bad_output_feedback(e: Exception) -> str | None:

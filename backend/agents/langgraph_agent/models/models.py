@@ -133,7 +133,6 @@ class FilterArgs(BaseModel):
     # String fields
     category_l1: Optional[str] = None
     category_l2: Optional[str] = None
-    halal_status: Optional[str] = None
     halal_status: Optional[Literal["Halal", "Haram", "Haraam", "Mushbooh"]] = None
     
     # List fields. Like the string fields above these default to None, meaning "the LLM
@@ -148,12 +147,32 @@ class FilterArgs(BaseModel):
     marketplace: Optional[list[str]] = Field(None, description="Marketplaces like Amazon, eBay") 
 
 
-class KeywordFilterInput(BaseModel):
-    keyword_args: Optional[Dict[str, Any]] = Field(
+class KeywordArgs(BaseModel):
+    """Text-match keyword fields for KeywordFilterSearch. Both are optional — supply
+    only what the user's query actually names."""
+    norm_name: Optional[str] = Field(
         None,
         description=(
-            "Keyword fields for text matching. Allowed keys: norm_name (str), companies (list[str]), "
-            "health_info (list[str]), typical_uses (list[str]). Pass null if no keywords present."
+            "The product or ingredient name to text-match, reduced to its core terms "
+            "(lowercase, brand removed). E.g. \"is Shan biryani masala halal?\" -> "
+            "\"biryani masala\". Null if the query names no product or ingredient."
+        ),
+    )
+    companies: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Brand or company names mentioned in the query, one per list item. "
+            "E.g. [\"Shan\"], [\"Nestle\", \"Maggi\"]. Null if no brand is named."
+        ),
+    )
+
+
+class KeywordFilterInput(BaseModel):
+    keyword_args: Optional[KeywordArgs] = Field(
+        None,
+        description=(
+            "Keyword text-match fields: norm_name (str) and companies (list[str]). "
+            "Pass null if the query names no product/ingredient and no brand."
         ),
     )
     filter_args: Optional[FilterArgs] = Field(

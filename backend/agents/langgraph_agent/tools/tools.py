@@ -1,6 +1,5 @@
 import uuid
 from log.logger import log
-from langsmith import traceable
 from langchain.tools import tool
 from .web_search import stream_web_search
 from typing import Dict, Optional, List, Any
@@ -9,10 +8,8 @@ from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
 from collection.search.search_collection import search_collection
 from ..utils.utils import KEYWORD_FIELD_ORDER, COLLECTION, build_filter_string
-from ..models.models import KeywordFilterInput, FilterArgs, SemanticFilterInput, WebSearchInput
+from ..models.models import KeywordFilterInput, KeywordArgs, FilterArgs, SemanticFilterInput, WebSearchInput
 
-# Keyword AND-narrowing limits: wide for the intermediate passes (so the target
-# survives), small for the final pass (the returned exact-match set).
 NARROW_KEYWORD_LIMIT = 250
 FINAL_KEYWORD_LIMIT = 10
 
@@ -21,16 +18,14 @@ FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
 
 @tool(args_schema=KeywordFilterInput)
-def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
+def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """Search halal products by keyword. USE THIS when the query names a specific
-    product, brand/company, ingredient, health note, or use — anything concrete —
-    or when the query is only exact filters (category, halal status, cert body,
+    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body,
     location, marketplace, barcode, etc.).
 
     Args:
       keyword_args: text-match fields. Keys: norm_name (str), companies (list[str]),
-        health_info (list[str]), typical_uses (list[str]). Pass null if none.
         Example — "is Shan biryani masala halal?" → {"norm_name": "biryani masala",
         "companies": ["Shan"]}.
       filter_args: exact-match filters (category_l1/l2, halal_status; sold_in,
@@ -40,10 +35,14 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
         k: v for k, v in (dict(filter_args) if filter_args else {}).items()
         if v
     }
+    # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
+    # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
+    # pydantic v2 model too — so the field lookups below are uniform.
+    keywords = dict(keyword_args) if keyword_args else {}
     # Iterate in KEYWORD_FIELD_ORDER (norm_name first) so the most selective field
     # narrows first — an early field's capped result set can't truncate the target
     # product out of the later fields' searches.
-    valid = [(k, keyword_args[k]) for k in KEYWORD_FIELD_ORDER if keyword_args and keyword_args.get(k)] if keyword_args else []
+    valid = [(k, keywords[k]) for k in KEYWORD_FIELD_ORDER if keywords.get(k)]
 
     if not valid and active_filters:
         return search_collection(
@@ -54,14 +53,15 @@ def KeywordFilterSearch(keyword_args: Optional[Dict] = None, filter_args: Option
         )
     if not valid and not active_filters:
         return []
+
     documents = []
     for i, (k, v) in enumerate(valid):
         # Intermediate passes only collect ids to narrow the next field, so pull a
         # wide set (250); the final pass is the returned result, capped small (4).
         limit = FINAL_KEYWORD_LIMIT if i == len(valid) - 1 else NARROW_KEYWORD_LIMIT
-        # keyword_args is typed Dict[str, Any], so the LLM can put non-strings in it.
-        # Coerce rather than assume — " ".join([123]) would raise TypeError and take
-        # the whole node down with it.
+        # KeywordArgs validates norm_name as str and companies as list[str], but coerce
+        # defensively anyway — a stray non-string would make " ".join raise TypeError
+        # and take the whole node down.
         query = " ".join(str(i) for i in v) if isinstance(v, list) else str(v)
         documents = search_collection(
             query=query,
@@ -116,8 +116,8 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
             "collection": COLLECTION,
             "q": "*",
             "vector_query": vector_query,
-            "per_page": K,
-            "exclude_fields": "embedding",
+            "per_page": K
+            # "exclude_fields": "embedding",
         }
 
         if filter_str:
@@ -178,19 +178,3 @@ def WebSearch(query: str) -> List[Dict]:
     product["verified"] = False
     product["grounding"] = grounding
     return [product]
-
-
-
-# result = KeywordFilterSearch.invoke({
-#     "keyword_args":
-#         {
-#             "companies":["barilla"],
-#             "norm_name": "pasta heart shape"
-#         }
-#     })
-# print(result)
-
-
-results = SemanticFilterSearch.invoke({"semantic_query": "High-protein foods good for building muscle"})
-
-print(results)

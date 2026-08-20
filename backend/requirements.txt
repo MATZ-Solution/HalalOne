@@ -17,6 +17,5 @@ httpx
 rapidfuzz
 valkey
 structlog
-
 pytest
 pytest-asyncio
