@@ -337,21 +337,13 @@ Example 1:
 <User>
 Is 1883 green tea concentrate that is sold in Malaysia certified by HMA halal?
 <Tool Call>
-WebSearch(
-    {
-        "query": "halal status of 1883 green tea concentrate that is sold in Malaysia and certified by HMA",
-    }
-)
+WebSearch("query": "halal status of 1883 green tea concentrate that is sold in Malaysia and certified by HMA")
 
 Example 2:
 <User>
 I want to know about saffron road thai basil noodles with beef of american halal co inc. sold in the USA.
 <Tool Call>
-WebSearch(
-    {
-        "query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA",
-    }
-)
+WebSearch("query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA")
 """.strip()
 
 # Trailing guidance, appended last.
