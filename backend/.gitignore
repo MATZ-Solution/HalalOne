@@ -1,4 +1,9 @@
 typesense-data/
 .claude/
 .env
+unique_field_values.json
+unique_values.json
+average_field_size.json
+processing_checkpoint.json
+agent_flowchart.png
 __pycache__/

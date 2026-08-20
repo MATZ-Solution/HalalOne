@@ -8,12 +8,10 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-
 def test_tools_module_imports_without_credentials_or_network():
     # tools.py transitively imports embeddings.py and config.typesense_client, both of
     # which do work at import time. This is the check that conftest's env shim holds.
     from agents.langgraph_agent.tools import tools
-
     assert tools.KeywordFilterSearch.name == "KeywordFilterSearch"
     assert tools.SemanticFilterSearch.name == "SemanticFilterSearch"
     assert tools.WebSearch.name == "WebSearch"

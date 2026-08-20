@@ -18,6 +18,7 @@ Fixtures deliberately patch the symbol *where it is used* (e.g.
 `...tools.tools.search_collection`), not where it is defined, because the agent modules
 bind these names at import time.
 """
+
 import copy
 import os
 

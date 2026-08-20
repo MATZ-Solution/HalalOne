@@ -1,7 +1,7 @@
 import uuid
 from log.logger import log
 from langchain.tools import tool
-from .web_search import stream_web_search
+from ..utils.web_search import stream_web_search
 from typing import Dict, Optional, List, Any
 from config.typesense_client import TS_CLIENT
 from langgraph.config import get_stream_writer
