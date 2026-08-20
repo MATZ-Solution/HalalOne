@@ -178,3 +178,7 @@ def WebSearch(query: str) -> List[Dict]:
     product["verified"] = False
     product["grounding"] = grounding
     return [product]
+
+
+results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
+print("Web search results", results)

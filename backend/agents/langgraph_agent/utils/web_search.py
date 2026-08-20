@@ -71,10 +71,10 @@ WEB_OUTPUT_SCHEMA = {
         "category_l2": {"type": "string", "description": "Sub-category, e.g. 'Confectionery', 'Beverage'"},
         "sold_in": _str_list("Countries or regions where the product is sold"),
         "marketplace": _str_list("Retail channels or marketplaces where it is available, e.g. 'Amazon', 'Walmart'"),
-        "fda_numbers": _str_list("FDA registration numbers listed for the product"),
-        "barcodes": _str_list("Product barcodes (UPC/EAN)"),
-        "typical_uses": _str_list("Common usage contexts of the product, e.g. 'snacking', 'baking'"),
-        "health_info": _str_list("Health effects, dietary notes, allergens or warnings stated for the product"),
+        "typical_uses": _str_list("Common usage contexts of the product, e.g. 'snacking', 'baking'")
+        # "fda_numbers": _str_list("FDA registration numbers listed for the product"),
+        # "barcodes": _str_list("Product barcodes (UPC/EAN)"),
+        # "health_info": _str_list("Health effects, dietary notes, allergens or warnings stated for the product"),
     },
     "required": ["norm_name"],
 }
