@@ -21,8 +21,7 @@ DISTANCE_THRESHOLD = 0.3
 def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """Search halal products by keyword. USE THIS when the query names a specific
-    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body,
-    location, marketplace, barcode, etc.).
+    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body, location, marketplace, barcode, etc.).
 
     Args:
       keyword_args: text-match fields. Keys: norm_name (str), companies (list[str]),
@@ -68,7 +67,7 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
             query_by=k,
             collection_name=COLLECTION,
             filter_parameters=active_filters,
-            limit=limit,
+            limit=limit
         )
         # Fields are ANDed: nothing matched here means nothing can match overall, so
         # stop rather than querying the remaining fields.
@@ -180,5 +179,5 @@ def WebSearch(query: str) -> List[Dict]:
     return [product]
 
 
-results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
-print("Web search results", results)
+# results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
+# print("Web search results", results)

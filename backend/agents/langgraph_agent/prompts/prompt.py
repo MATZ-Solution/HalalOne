@@ -1,19 +1,21 @@
+from log.logger import log
 from ..utils.utils import CANONICAL_LISTS, KEYWORD, SEMANTIC, WEB
 
 CLASSIFICATION_PROMPT = """
 You are an intent classifier for HalalOne, which searches a database of 200K+ halal products. Decide whether the user's message needs a product search.
 
-PRINCIPLE:
+## CONTEXT ##
+HalalOne searches for product(s) given by the user using the information given by the user about that product. The user either provides the name(s), companies of the product, filters (category_l1, category_l2, halal_status, sold_in, cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace) or a semantic/conceptual query like "Find me halal products that are rich in calcium sulphate" or "I want halal products for my baby that are rich in vitamin content". If user asks for products providing ANY of the above mentioned details and the intention is to search for them then output `search`. If a user asks a vague query like 'Are all chocolates halal'? or 'Is burger halal?' or 'Is biryani halal?' without specifying any of the above mentioned details then output `direct`.
+
+## INSTRUCTIONS: ##
 - `search` → ONLY when the user wants you to find or look up specific halal product(s) — by name, brand, ingredient, category, or place. The message is a request to retrieve products.
 - `direct` → EVERYTHING ELSE: greetings, general questions, definitions, opinions, follow-ups that need no new lookup, and anyone sharing feelings, experiences, or frustrations — even if halal products are mentioned. If they're talking *about* their halal life rather than asking you to find a product, it's `direct`.
-
-When unsure, prefer `direct` — a conversation is safer than a doomed search.
 
 Return ONLY valid JSON: {{"classification": "search"}} or {{"classification": "direct"}}.
 
 ## EXAMPLES:
 user_prompt: Are all chocolates halal?
-output: {{"classification": "search"}}
+output: {{"classification": "direct"}}
 
 user_prompt: Is creme brule halal?
 output: {{"classification": "search"}}
@@ -30,10 +32,7 @@ output: {{"classification": "direct"}}
 user_prompt: How are you doing? What are your specialities?
 output: {{"classification": "direct"}}
 
-user_prompt: It's so hard finding halal products where I live, I'm really frustrated.
-output: {{"classification": "direct"}}
-
-user_prompt: please show some empathy
+user_prompt: It's so hard finding halal products where I live, I'm really frustrated. please show some empathy
 output: {{"classification": "direct"}}
 """
 
@@ -357,31 +356,6 @@ _TOOL_BLOCKS = (
 )
 
 
-def build_search_prompt(tool_names) -> str:
-    """Assemble the search-node system prompt for exactly the tools bound on this
-    call. SEARCH_PROMPT_BASE is a stable prefix (kept identical every call for prompt
-    caching); the tool-specific schema, filter normalization, and per-tool usage
-    blocks + examples are all appended AFTER it, only for the tools in `tool_names`."""
-    names = set(tool_names)
-    parts = [SEARCH_PROMPT_BASE]
-
-    # Schema + filter normalization only matter for DB tools that accept filters.
-    if KEYWORD in names or SEMANTIC in names:
-        schema = [PRODUCT_SCHEMA_HEADER]
-        if KEYWORD in names:
-            schema.append(PRODUCT_SCHEMA_KEYWORD)
-        schema.append(PRODUCT_SCHEMA_FILTERS)
-        parts.append("\n\n".join(schema))
-        parts.append(FILTER_NORMALIZATION)
-
-    # One usage block (description + examples) per bound tool, in ladder order.
-    tool_blocks = [block for name, block in _TOOL_BLOCKS if name in names]
-    if tool_blocks:
-        parts.append("## TOOLS\n\n" + "\n\n".join(tool_blocks))
-
-    parts.append(SEARCH_PROMPT_TRAILER)
-    return "\n\n".join(parts)
-
 FINAL_RESPONSE_PROMPT = """
 You are **HalalOne** — a warm, understanding companion for people trying to live and shop halal. You know first-hand how stressful it is to find genuinely halal-certified products, especially where they're scarce (much of the UK and the West): the label-reading, the dead ends, the apps that come up empty. You meet people with real empathy, and you help them find halal products from a verified database of 200K+ items (food, beverages, cosmetics, travel, chemicals, and more).
 
@@ -480,6 +454,34 @@ Never show shellfish — permanent, all categories (husband's allergy). In Cardi
 </examples>
 """
 
+def build_search_prompt(tool_names: list[str]) -> str:
+    """Assemble the search-node system prompt for exactly the tools bound on this
+    call. SEARCH_PROMPT_BASE is a stable prefix (kept identical every call for prompt
+    caching); the tool-specific schema, filter normalization, and per-tool usage
+    blocks + examples are all appended AFTER it, only for the tools in `tool_names`.
+    Raises TypeError if tool_names isn't a list of strings — a bad caller is a bug,
+    not something to paper over with a silent toolless prompt."""
+    if not isinstance(tool_names, list) or not all(isinstance(n, str) for n in tool_names):
+        log.warning("build_search_prompt.bad_tool_names", tool_names=repr(tool_names))
+        raise TypeError("tool_names must be a list of strings")
+    names = set(tool_names)
+    parts = [SEARCH_PROMPT_BASE]
 
+    # Schema + filter normalization only matter for DB tools that accept filters.
+    if KEYWORD in names or SEMANTIC in names:
+        schema = [PRODUCT_SCHEMA_HEADER]
+        if KEYWORD in names:
+            schema.append(PRODUCT_SCHEMA_KEYWORD)
+        schema.append(PRODUCT_SCHEMA_FILTERS)
+        parts.append("\n\n".join(schema))
+        parts.append(FILTER_NORMALIZATION)
+
+    # One usage block (description + examples) per bound tool, in ladder order.
+    tool_blocks = [block for name, block in _TOOL_BLOCKS if name in names]
+    if tool_blocks:
+        parts.append("## TOOLS\n\n" + "\n\n".join(tool_blocks))
+
+    parts.append(SEARCH_PROMPT_TRAILER)
+    return "\n\n".join(parts)
 
 
