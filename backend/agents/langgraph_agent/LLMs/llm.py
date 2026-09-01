@@ -2,7 +2,6 @@ import os
 import warnings
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from langchain_cerebras import ChatCerebras
 from ..models.models import JudgeVerdict
 # from langchain_aws import ChatBedrockConverse
 

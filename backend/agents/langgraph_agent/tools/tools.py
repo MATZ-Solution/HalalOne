@@ -8,7 +8,13 @@ from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
 from collection.search.search_collection import search_collection
 from ..utils.utils import KEYWORD_FIELD_ORDER, COLLECTION, build_filter_string
-from ..models.models import KeywordFilterInput, KeywordArgs, FilterArgs, SemanticFilterInput, WebSearchInput
+from ..models.models import (
+    KeywordFilterInput,
+    KeywordArgs,
+    FilterArgs,
+    SemanticFilterInput,
+    WebSearchInput,
+)
 
 NARROW_KEYWORD_LIMIT = 250
 FINAL_KEYWORD_LIMIT = 10
@@ -17,9 +23,11 @@ K = 8
 FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
 
-@tool(args_schema=KeywordFilterInput)
-def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
+@tool(args_schema=KeywordFilterInput)
+def KeywordFilterSearch(
+    keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by keyword. USE THIS when the query names a specific
     product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body, location, marketplace, barcode, etc.).
 
@@ -31,8 +39,7 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
         cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace). Pass null if none.
     """
     active_filters = {
-        k: v for k, v in (dict(filter_args) if filter_args else {}).items()
-        if v
+        k: v for k, v in (dict(filter_args) if filter_args else {}).items() if v
     }
     # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
     # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
@@ -67,7 +74,7 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
             query_by=k,
             collection_name=COLLECTION,
             filter_parameters=active_filters,
-            limit=limit
+            limit=limit,
         )
         # Fields are ANDed: nothing matched here means nothing can match overall, so
         # stop rather than querying the remaining fields.
@@ -75,15 +82,19 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
             return []
         # Narrow the next field's search to what this one matched. A document missing
         # canonical_id is skipped instead of raising KeyError.
-        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+        matched_ids = [
+            doc["canonical_id"] for doc in documents if doc.get("canonical_id")
+        ]
         if matched_ids:
             active_filters["canonical_id"] = matched_ids
 
     return documents
 
-@tool(args_schema = SemanticFilterInput)
-def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
+@tool(args_schema=SemanticFilterInput)
+def SemanticFilterSearch(
+    semantic_query: str, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by semantic/vector similarity. USE THIS only when the
     query is conceptual or descriptive with NO specific product/brand named — e.g.
     "a calcium-rich snack for children", "natural red food colouring", "good for
@@ -115,7 +126,7 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
             "collection": COLLECTION,
             "q": "*",
             "vector_query": vector_query,
-            "per_page": K
+            "per_page": K,
             # "exclude_fields": "embedding",
         }
 
@@ -125,7 +136,9 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
     except Exception as e:
-        log.error("tool.semantic_search.failed", error=str(e), error_type=type(e).__name__)
+        log.error(
+            "tool.semantic_search.failed", error=str(e), error_type=type(e).__name__
+        )
         return []
 
 
@@ -154,13 +167,15 @@ def WebSearch(query: str) -> List[Dict]:
             if etype == "results" and writer:
                 # Emit each source as a live loading message.
                 for r in event.get("results", []):
-                    writer({
-                        "type": "web_source",
-                        "url": r.get("url"),
-                        "title": r.get("title"),
-                        "favicon": r.get("favicon"),
-                        "highlights": r.get("highlights") or [],
-                    })
+                    writer(
+                        {
+                            "type": "web_source",
+                            "url": r.get("url"),
+                            "title": r.get("title"),
+                            "favicon": r.get("favicon"),
+                            "highlights": r.get("highlights") or [],
+                        }
+                    )
             elif etype == "done":
                 output = event.get("output") or {}
                 product = output.get("content")

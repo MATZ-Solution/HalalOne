@@ -32,7 +32,7 @@ output: {{"classification": "direct"}}
 user_prompt: How are you doing? What are your specialities?
 output: {{"classification": "direct"}}
 
-user_prompt: It's so hard finding halal products where I live, I'm really frustrated. please show some empathy
+user_prompt: It's so hard finding halal products where I live, I'm really frustrated. please show some empathy.
 output: {{"classification": "direct"}}
 """
 
@@ -135,15 +135,27 @@ Explain your reasoning in a step-by-step manner, then give the ids.
 
 # Static prefix (identical on every search_node call → cacheable).
 SEARCH_PROMPT_BASE = """
-You are HalalOne's intelligent product search assistant with access to a database of 200,000+ halal-certified products (food items, ingredients, additives, manufactured goods, creams, cosmetics or any type of halal product).
+You are **HalalOne** — a warm, grounded companion for people trying to shop and live halal. You know how draining the label-reading and the dead ends can be, so you meet people with real empathy and few words. You help them by searching a database of 200,000+ halal-certified products (food, ingredients, additives, manufactured goods, creams, cosmetics — any type of halal product).
 
-You will be given one or more search tools to call. Read each tool's description to know when to use it and how to fill its arguments, then call the right one with arguments extracted from the user's query. You must call a tool.
+You are given one or more search tools. Read each tool's description to know when to use it and how to fill its arguments. When the user wants to find products, call the single most relevant tool with arguments extracted from their query.
 
 ## STRICT EXTRACTION RULES
 - Only populate tool arguments with information **explicitly stated** in the user's query.
 - Do NOT assume, infer, or fill in fields that are not directly mentioned.
 - If a field's value is not present in the query, pass `null` for that field.
-- Example: "is biryani masala halal?" → `norm_name = "biryani masala"`, all other fields `null`. Do NOT assume `category_l1 = "Food"` or for any other field.
+- Example: "is National biryani masala halal?" → `norm_name = "biryani masala"`, `companies = ["National"]` all other fields `null`. Do NOT assume `category_l1 = "Food"` or for any other field.
+""".strip()
+
+# Added only on the first (unforced) search call: the routing decision — search vs
+# reply directly — and scope. Persona itself lives in SEARCH_PROMPT_BASE (one voice,
+# every call); this block is purely behavioral so it never reaches forced loop calls.
+SEARCH_ROUTING_RULES = """
+## WHEN TO SEARCH VS REPLY DIRECTLY
+- If the user wants to FIND products (by name, brand, ingredient, category, filters, or a conceptual need) → call the single most relevant tool. Write NO message content when you do.
+- Otherwise — greetings, thanks, small talk, venting, or follow-ups that need no new lookup → do NOT call a tool. Reply directly, warmly, in a sentence or two.
+
+## SCOPE
+HalalOne only helps find halal products. General halal-knowledge questions are out of scope — e.g. "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?", "Are chocolates halal?", "Is burger halal?", "Is biryani halal?". The last three questions are direct questions and the user's intention is not to search for a specific product(s) rather to know the halal status of an entire categroy. Your job is to search for specific product(s) so user's prompt has to mention some product details i.e name, companies, categories or filters for you to initiate a search. Like "Is kitkat chocolate halal?" or "Are M&Ms halal?" or "Is Imtiaz Coffee Classic halal". These are question that carry an intention to search. So initiate a search on these. Do NOT answer these and do NOT call a tool; briefly and politely redirect the user to product search.
 """.strip()
 
 # Product schema — the keyword table only when KeywordFilterSearch is bound; the
@@ -154,8 +166,8 @@ PRODUCT_SCHEMA_KEYWORD = """
 **Keyword-searchable fields** (used for text matching):
 | Field        | Type      | Description                              |
 |--------------|-----------|------------------------------------------|
-| norm_name    | string    | Normalized product name                  |
-| companies    | string[]  | Manufacturer or brand names              |
+| norm_name    | string    | Normalized product name, no category or brand names. Example: "kitkat" or "M&Ms" or "Coffee Classic"|
+| companies    | string[]  | Manufacturer or brand names, no category or brand names|
 """.strip()
 
 PRODUCT_SCHEMA_FILTERS = """
@@ -179,12 +191,12 @@ FILTER_NORMALIZATION = f"""
 ### FOR `category_l1`, `category_l2`, `halal_status`, `cert_bodies`, `sold_in`, `marketplace` fields:
 
 Before passing any filter value to a tool, normalize it according to the following list items if the user's query contains a filter value which matches any one of these, if it doesnt't then pass it as is after applying common-sense/typo corrections:
-category_l1: {CANONICAL_LISTS['category_l1']}
-category_l2: {CANONICAL_LISTS['category_l2']}
-halal_status: {CANONICAL_LISTS['halal_status']}
-cert_bodies: {CANONICAL_LISTS['cert_bodies']}
-sold_in: {CANONICAL_LISTS['sold_in']}
-marketplace: {CANONICAL_LISTS['marketplace']}
+category_l1: {CANONICAL_LISTS["category_l1"]}
+category_l2: {CANONICAL_LISTS["category_l2"]}
+halal_status: {CANONICAL_LISTS["halal_status"]}
+cert_bodies: {CANONICAL_LISTS["cert_bodies"]}
+sold_in: {CANONICAL_LISTS["sold_in"]}
+marketplace: {CANONICAL_LISTS["marketplace"]}
 
 
 ### FOR `fda_numbers`, `barcodes`, `cert_numbers` fields:
@@ -454,18 +466,26 @@ Never show shellfish — permanent, all categories (husband's allergy). In Cardi
 </examples>
 """
 
-def build_search_prompt(tool_names: list[str]) -> str:
+
+def build_search_prompt(tool_names: list[str], allow_direct: bool = False) -> str:
     """Assemble the search-node system prompt for exactly the tools bound on this
     call. SEARCH_PROMPT_BASE is a stable prefix (kept identical every call for prompt
     caching); the tool-specific schema, filter normalization, and per-tool usage
     blocks + examples are all appended AFTER it, only for the tools in `tool_names`.
+    allow_direct adds the search-vs-direct + scope routing block for the first
+    (unforced) call, where the model may reply directly instead of searching.
+    (Persona lives in SEARCH_PROMPT_BASE, so it's identical on every call.)
     Raises TypeError if tool_names isn't a list of strings — a bad caller is a bug,
     not something to paper over with a silent toolless prompt."""
-    if not isinstance(tool_names, list) or not all(isinstance(n, str) for n in tool_names):
+    if not isinstance(tool_names, list) or not all(
+        isinstance(n, str) for n in tool_names
+    ):
         log.warning("build_search_prompt.bad_tool_names", tool_names=repr(tool_names))
         raise TypeError("tool_names must be a list of strings")
     names = set(tool_names)
     parts = [SEARCH_PROMPT_BASE]
+    if allow_direct:
+        parts.append(SEARCH_ROUTING_RULES)
 
     # Schema + filter normalization only matter for DB tools that accept filters.
     if KEYWORD in names or SEMANTIC in names:
@@ -483,5 +503,3 @@ def build_search_prompt(tool_names: list[str]) -> str:
 
     parts.append(SEARCH_PROMPT_TRAILER)
     return "\n\n".join(parts)
-
-
