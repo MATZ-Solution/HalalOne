@@ -159,7 +159,7 @@ def WebSearch(query: str) -> List[Dict]:
     except Exception:
         writer = None
 
-    product = None
+    products: List[Dict] = []
     grounding: List[Dict] = []
     try:
         for event in stream_web_search(query):
@@ -178,20 +178,23 @@ def WebSearch(query: str) -> List[Dict]:
                     )
             elif etype == "done":
                 output = event.get("output") or {}
-                product = output.get("content")
+                products = (output.get("content") or {}).get("products") or []
                 grounding = output.get("grounding") or []
     except Exception as e:
         log.error("tool.web_search.failed", error=str(e), error_type=type(e).__name__)
         return []
 
-    if not product or not product.get("norm_name"):
-        return []
-    # Give the web product a stable id (like DB products) so response_node can
-    # select it by id. The `halal_` prefix marks it as web-sourced.
-    product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
-    product["verified"] = False
-    product["grounding"] = grounding
-    return [product]
+    # Keep only well-formed products; stamp each like a DB product so response_node
+    # can select it by id. The `halal_` prefix + verified=False mark it web-sourced.
+    results: List[Dict] = []
+    for product in products:
+        if not product.get("norm_name"):
+            continue
+        product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
+        product["verified"] = False
+        product["grounding"] = grounding
+        results.append(product)
+    return results
 
 
 # results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})

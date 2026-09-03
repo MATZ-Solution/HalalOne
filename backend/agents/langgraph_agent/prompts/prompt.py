@@ -190,7 +190,7 @@ FILTER_NORMALIZATION = f"""
 ## FILTER NORMALIZATION & TYPO HANDLING
 ### FOR `category_l1`, `category_l2`, `halal_status`, `cert_bodies`, `sold_in`, `marketplace` fields:
 
-Before passing any filter value to a tool, normalize it according to the following list items if the user's query contains a filter value which matches any one of these, if it doesnt't then pass it as is after applying common-sense/typo corrections:
+Before passing any filter value to a tool, normalize it according to the following list items if the user's query contains a filter value which matches any one of these, if it doesn't then pass it in as is after applying common-sense/typo corrections:
 category_l1: {CANONICAL_LISTS["category_l1"]}
 category_l2: {CANONICAL_LISTS["category_l2"]}
 halal_status: {CANONICAL_LISTS["halal_status"]}

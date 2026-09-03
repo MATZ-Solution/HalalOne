@@ -3,8 +3,14 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
-from agentevals.trajectory import create_trajectory_match_evaluator
-
+from agents.langgraph_agent.utils.utils import (
+    select_tools,
+    KEYWORD,
+    SEMANTIC,
+    WEB,
+    MAX_KEYWORD_CALLS,
+    MAX_SEMANTIC_CALLS,
+)
 
 load_dotenv(override=True)
 # trajectory = create_trajectory_match_evaluator(
@@ -14,8 +20,16 @@ load_dotenv(override=True)
 
 class Grade(BaseModel):
     """Evaluate the tool calls of the agent"""
-    reasoning: str = Field(..., description="Explain your reasoning for whether the tool call is correct or not.")
-    is_correct: bool = Field(..., description="True if the tool call is correct according to the criteria, otherwise False.")
+
+    reasoning: str = Field(
+        ...,
+        description="Explain your reasoning for whether the tool call is correct or not.",
+    )
+    is_correct: bool = Field(
+        ...,
+        description="True if the tool call is correct according to the criteria, otherwise False.",
+    )
+
 
 grader_instructions = """You are an evaluation assistant.
 
@@ -50,25 +64,14 @@ False means that the tool call does not meet all of the criteria.
 
 Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct
 """
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
     raise ValueError("GROQ API Key is missing!")
 
-llm = ChatGroq(
-    api_key=GROQ_API_KEY, 
-    model='openai/gpt-oss-20b',
-    temperature=0
-)
+llm = ChatGroq(api_key=GROQ_API_KEY, model="openai/gpt-oss-20b", temperature=0)
 
 evaluator_llm = llm.with_structured_output(Grade, method="json_schema")
-
-# Reuse the agent's own ladder so the evaluator can't drift from what the agent
-# actually allows. select_tools/should_loop are the exact functions the agent binds
-# and budgets against.
-from agents.langgraph_agent.utils.utils import (
-    select_tools, KEYWORD, SEMANTIC, WEB, MAX_KEYWORD_CALLS, MAX_SEMANTIC_CALLS,
-)
 
 KNOWN_TOOLS = {KEYWORD, SEMANTIC, WEB}
 
@@ -76,19 +79,32 @@ KNOWN_TOOLS = {KEYWORD, SEMANTIC, WEB}
 # not by the LLM. They live inside a tool call's filter_args.
 EXACT_MATCH_FIELDS = ("halal_status", "cert_numbers", "fda_numbers", "barcodes")
 
+
 def _extract_exact_fields(args: dict) -> dict:
     """The exact-match fields present in a tool call's filter_args (non-empty only)."""
     filter_args = (args or {}).get("filter_args") or {}
-    return {f: filter_args[f] for f in EXACT_MATCH_FIELDS if filter_args.get(f) not in (None, [], "")}
+    return {
+        f: filter_args[f]
+        for f in EXACT_MATCH_FIELDS
+        if filter_args.get(f) not in (None, [], "")
+    }
+
 
 def _exact_match(actual, expected) -> bool:
     """Char-by-char exact match. Lists compare order-insensitively, element by element."""
-    to_list = lambda x: [str(i) for i in x] if isinstance(x, list) else ([] if x is None else [str(x)])
+    to_list = (
+        lambda x: [str(i) for i in x]
+        if isinstance(x, list)
+        else ([] if x is None else [str(x)])
+    )
     if isinstance(actual, list) or isinstance(expected, list):
         return sorted(to_list(actual)) == sorted(to_list(expected))
     return str(actual) == str(expected)
 
-async def agent_trajectory_correctness(inputs: dict, outputs:dict, reference_outputs: dict = None) -> list[dict]:
+
+async def agent_trajectory_correctness(
+    inputs: dict, outputs: dict, reference_outputs: dict = None
+) -> list[dict]:
     "Evaluates the agent's complete trajectory"
 
     # initialize metrics for evaluating agent's trajectory
@@ -98,18 +114,20 @@ async def agent_trajectory_correctness(inputs: dict, outputs:dict, reference_out
     for message in outputs["messages"]:
         if isinstance(message, AIMessage):
             for tool_call in message.tool_calls:
-                called_tool_names.append({"name": tool_call["name"], "args": tool_call["args"]})
+                called_tool_names.append(
+                    {"name": tool_call["name"], "args": tool_call["args"]}
+                )
 
     # no tools called, return with all metric True
     if not called_tool_names:
         return [
-        {"key": "toolNameCorrectness", "score": CorrectToolNames},
-        {"key": "toolOrderCorrectness", "score": CorrectToolOrder},
-        {"key": "toolArgsCorrectness", "score": CorrectToolArguments},
-        {"key": "toolArgsGradingErrors", "score": 0},
-    ]
+            {"key": "toolNameCorrectness", "score": CorrectToolNames},
+            {"key": "toolOrderCorrectness", "score": CorrectToolOrder},
+            {"key": "toolArgsCorrectness", "score": CorrectToolArguments},
+            {"key": "toolArgsGradingErrors", "score": 0},
+        ]
 
-    names = [tool['name'] for tool in called_tool_names]
+    names = [tool["name"] for tool in called_tool_names]
 
     # all tools called are the ones we recognize
     CorrectToolNames = all(n in KNOWN_TOOLS for n in names)
@@ -119,7 +137,9 @@ async def agent_trajectory_correctness(inputs: dict, outputs:dict, reference_out
     # This accepts every valid path (key / key,web,sem / key,key,web,sem,sem / sem /
     # sem,sem ...) and rejects the rest, without enumerating them here.
     first_tool = names[0]
-    CorrectToolOrder = all(names[i] in select_tools(first_tool, names[:i]) for i in range(len(names)))
+    CorrectToolOrder = all(
+        names[i] in select_tools(first_tool, names[:i]) for i in range(len(names))
+    )
     # Budget: total calls must stay within the ladder's limit (5 keyword-first,
     # 2 semantic-first).
     if CorrectToolOrder:
@@ -133,22 +153,31 @@ async def agent_trajectory_correctness(inputs: dict, outputs:dict, reference_out
     for tool in called_tool_names:
         # Exact-match check for the deterministic fields first. If the tool provides
         # any of them and they don't match the dataset reference, fail early (no LLM).
-        exact_fields = _extract_exact_fields(tool['args'])
+        exact_fields = _extract_exact_fields(tool["args"])
         if exact_fields:
             ref = reference_outputs or {}
-            mismatched = {k: v for k, v in exact_fields.items() if not _exact_match(v, ref.get(k))}
+            mismatched = {
+                k: v for k, v in exact_fields.items() if not _exact_match(v, ref.get(k))
+            }
             if mismatched:
                 correctness.append(False)
-                reasons.append(f"{tool['name']}: exact-match failed — " + ", ".join(
-                    f"{k}=got {v!r} expected {ref.get(k)!r}" for k, v in mismatched.items()))
+                reasons.append(
+                    f"{tool['name']}: exact-match failed — "
+                    + ", ".join(
+                        f"{k}=got {v!r} expected {ref.get(k)!r}"
+                        for k, v in mismatched.items()
+                    )
+                )
                 continue
 
         # now checking the rest of the arguments - use LLM as a judge
-        user_message = f"""USER PROMPT: {inputs['question']}
-        TOOL CALL: {tool['args']}
+        user_message = f"""USER PROMPT: {inputs["question"]}
+        TOOL CALL: {tool["args"]}
         """
         try:
-            grade: Grade = await evaluator_llm.ainvoke([SystemMessage(grader_instructions), HumanMessage(user_message)])
+            grade: Grade = await evaluator_llm.ainvoke(
+                [SystemMessage(grader_instructions), HumanMessage(user_message)]
+            )
         except Exception as e:
             grading_errors.append({"tool": tool.get("name"), "error": str(e)})
             continue
@@ -160,6 +189,14 @@ async def agent_trajectory_correctness(inputs: dict, outputs:dict, reference_out
     return [
         {"key": "toolNameCorrectness", "score": CorrectToolNames},
         {"key": "toolOrderCorrectness", "score": CorrectToolOrder},
-        {"key": "toolArgsCorrectness", "score": CorrectToolArguments, "comment": "\n\n".join(reasons)},
-        {"key": "toolArgsGradingErrors", "score": len(grading_errors), "comment": "\n".join(str(e) for e in grading_errors)},
+        {
+            "key": "toolArgsCorrectness",
+            "score": CorrectToolArguments,
+            "comment": "\n\n".join(reasons),
+        },
+        {
+            "key": "toolArgsGradingErrors",
+            "score": len(grading_errors),
+            "comment": "\n".join(str(e) for e in grading_errors),
+        },
     ]

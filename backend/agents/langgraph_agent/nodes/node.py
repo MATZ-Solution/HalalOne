@@ -12,14 +12,28 @@ from langchain.messages import SystemMessage, HumanMessage, ToolMessage, AIMessa
 from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict
 from ..LLMs.llm import standard_llm, judge_llm
 from ..prompts.prompt import (
-    build_search_prompt, JUDGE_PROMPT,
-    NO_EXACT_SIMILAR_MSG, NO_RESULTS_MSG, SEMANTIC_RESULTS_MSG,
+    build_search_prompt,
+    JUDGE_PROMPT,
+    NO_EXACT_SIMILAR_MSG,
+    NO_RESULTS_MSG,
+    SEMANTIC_RESULTS_MSG,
 )
 from ..tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
-from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id, _compact_for_judge
+from ..utils.utils import (
+    KEYWORD_FIELDS,
+    WEB_FILTER_FIELDS,
+    select_tools,
+    should_loop,
+    validate_ids,
+    apply_filter_check,
+    dedup_by_id,
+    _compact_for_judge,
+)
 
 
-TOOLS_BY_NAME = {t.name: t for t in [KeywordFilterSearch, SemanticFilterSearch, WebSearch]}
+TOOLS_BY_NAME = {
+    t.name: t for t in [KeywordFilterSearch, SemanticFilterSearch, WebSearch]
+}
 
 # Re-ask the judge at most this many times if it returns ids that aren't in the
 # candidate pool (hallucinated), before falling back to the valid ids only.
@@ -62,7 +76,8 @@ def search_node(state: SearchAgentState) -> dict:
     llm_with_tools = standard_llm.bind_tools(tools, tool_choice=tool_choice)
     try:
         result = llm_with_tools.invoke(
-            [SystemMessage(build_search_prompt(names, allow_direct=is_first))] + state["messages"]
+            [SystemMessage(build_search_prompt(names, allow_direct=is_first))]
+            + state["messages"]
         )
     except Exception as e:
         # Groq raises "Tool choice is required, but model did not call a tool" when
@@ -79,7 +94,9 @@ def search_node(state: SearchAgentState) -> dict:
     # Only the first (unforced) call decides the route: a tool call means search,
     # no tool call means the model already wrote a direct reply.
     if is_first:
-        update["classification"] = "search" if getattr(result, "tool_calls", None) else "direct"
+        update["classification"] = (
+            "search" if getattr(result, "tool_calls", None) else "direct"
+        )
     return update
 
 
@@ -135,7 +152,6 @@ def tool_node(state: SearchAgentState) -> dict:
     return update
 
 
-
 def _bad_output_feedback(e: Exception) -> str | None:
     """If the exception is a malformed-output error the model can fix, return a
     correction message to feed back; otherwise None (a transient/infra error to
@@ -165,12 +181,13 @@ def _judge_matches(keyword_params: dict, candidates: list) -> list:
     # Show only the keyword fields the user actually gave: the judge compares each
     # provided field against the product's same field, nothing else.
     show_fields = [f for f in KEYWORD_FIELDS if keyword_params.get(f)]
-
     candidate_ids = [c.get("canonical_id") for c in candidates if c.get("canonical_id")]
     blob = "\n\n".join(_compact_for_judge(c, show_fields) for c in candidates)
     messages = [
         SystemMessage(JUDGE_PROMPT),
-        HumanMessage(f"USER WANTS:\n{json.dumps(keyword_params)}\n\nCANDIDATES:\n{blob}"),
+        HumanMessage(
+            f"USER WANTS:\n{json.dumps(keyword_params)}\n\nCANDIDATES:\n{blob}"
+        ),
     ]
 
     valid: list = []
@@ -194,15 +211,21 @@ def _judge_matches(keyword_params: dict, candidates: list) -> list:
         if not hallucinated:
             return valid
         log.warning("judge.hallucinated_ids", ids=hallucinated, attempt=attempt + 1)
-        messages.append(AIMessage(content=json.dumps({"matched_ids": verdict.matched_ids})))
-        messages.append(HumanMessage(
-            f"You returned ids that are not in the candidates: {hallucinated}. "
-            "Only return ids that appear verbatim on an `id:` line. Do not infer or invent."
-        ))
+        messages.append(
+            AIMessage(content=json.dumps({"matched_ids": verdict.matched_ids}))
+        )
+        messages.append(
+            HumanMessage(
+                f"You returned ids that are not in the candidates: {hallucinated}. "
+                "Only return ids that appear verbatim on an `id:` line. Do not infer or invent."
+            )
+        )
     return valid
 
 
-def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orchestration_node"]]:
+def judge_node(
+    state: SearchAgentState,
+) -> Command[Literal["response_node", "orchestration_node"]]:
     """Split the latest tool results into matched vs relevant.
 
     - Semantic-FIRST query: purely conceptual, no exact target → nothing "matches";
@@ -219,16 +242,31 @@ def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orc
     pool = state.get("current_pool", [])
     prior_relevant = state.get("relevant", [])
     keyword_params = state.get("keyword_params")
+    last_tool = state.get("tools_called", [])[-1] if state.get("tools_called") else None
 
     if state.get("first_tool") == SemanticFilterSearch.name:
         matched, non_matched = [], pool
     else:
         # Only filter-passers can be matched or relevant; rejected ones are dropped.
-        passers, _rejected = apply_filter_check(pool, state.get("filters"))
+        # Web results were never DB-filtered, so re-check them on the hard
+        # identifiers only, hyphen/case-insensitively, and only where the result
+        # actually carries that field (see WEB_FILTER_FIELDS).
+        if last_tool == WebSearch.name:
+            passers, _rejected = apply_filter_check(
+                pool,
+                state.get("filters"),
+                only_fields=WEB_FILTER_FIELDS,
+                loose=True,
+                skip_missing=True,
+            )
+        else:
+            passers, _rejected = apply_filter_check(pool, state.get("filters"))
         if keyword_params:
             matched_ids = set(_judge_matches(keyword_params, passers))
             matched = [p for p in passers if p.get("canonical_id") in matched_ids]
-            non_matched = [p for p in passers if p.get("canonical_id") not in matched_ids]
+            non_matched = [
+                p for p in passers if p.get("canonical_id") not in matched_ids
+            ]
         else:
             # filter-only query → the filter passers ARE the matches (no LLM needed)
             matched, non_matched = passers, []
@@ -241,21 +279,35 @@ def judge_node(state: SearchAgentState) -> Command[Literal["response_node", "orc
     # outcome: on a no-match loop, search_node reads an authoritative "no products
     # matched" signal instead of a raw count it could mistake for success. Required
     # for the tool-call protocol, so it's emitted on both paths.
-    last_tool = state.get("tools_called", [])[-1] if state.get("tools_called") else "search"
+    label = last_tool or "search"
     summary = (
-        f"{last_tool}: found {len(matched)} matching product(s)."
-        if matched else
-        f"{last_tool}: no products matched."
+        f"{label}: found {len(matched)} matching product(s)."
+        if matched
+        else f"{label}: no products matched."
     )
     tool_calls = getattr(state["messages"][-1], "tool_calls", None) or []
-    tool_messages = [ToolMessage(content=summary, tool_call_id=tc["id"]) for tc in tool_calls]
+    tool_messages = [
+        ToolMessage(content=summary, tool_call_id=tc["id"]) for tc in tool_calls
+    ]
 
     if matched:
-        return Command(update={"messages": tool_messages, "matched": matched, "relevant": relevant}, goto="response_node")
-    return Command(update={"messages": tool_messages, "matched": [], "relevant": relevant}, goto="orchestration_node")
+        return Command(
+            update={
+                "messages": tool_messages,
+                "matched": matched,
+                "relevant": relevant,
+            },
+            goto="response_node",
+        )
+    return Command(
+        update={"messages": tool_messages, "matched": [], "relevant": relevant},
+        goto="orchestration_node",
+    )
 
 
-def orchestration_node(state: SearchAgentState) -> Command[Literal["search_node", "response_node"]]:
+def orchestration_node(
+    state: SearchAgentState,
+) -> Command[Literal["search_node", "response_node"]]:
     """Loop controller: fall back to the next tool if the budget allows, else stop.
 
     Semantic-first is a special case: it produces no exact matches, so we stop as
@@ -272,8 +324,10 @@ def orchestration_node(state: SearchAgentState) -> Command[Literal["search_node"
 
     return Command(goto="search_node" if loop else "response_node")
 
+
 # Fields allowed out to the client (whitelist applied when returning products).
 _ALLOWED_OUT = set(OutputSchema.model_fields)
+
 
 def _project(raw: dict) -> dict:
     """Return only client-facing fields; default DB products to verified."""
@@ -300,7 +354,11 @@ def response_node(state: SearchAgentState) -> dict:
     elif relevant:
         # semantic-first query wanted "similar", so don't apologise for missing
         # exact matches the user never asked for.
-        response = SEMANTIC_RESULTS_MSG if state.get("first_tool") == SemanticFilterSearch.name else NO_EXACT_SIMILAR_MSG
+        response = (
+            SEMANTIC_RESULTS_MSG
+            if state.get("first_tool") == SemanticFilterSearch.name
+            else NO_EXACT_SIMILAR_MSG
+        )
     elif state.get("classification") == "search":
         response = NO_RESULTS_MSG
     else:
@@ -318,8 +376,17 @@ def response_node(state: SearchAgentState) -> dict:
 def default_error_handler(state: SearchAgentState, error: NodeError):
     """Recovery node, handles node failures."""
 
-    log.error("agent.node.failed", node=error.node, error=str(error), error_type=type(error.error).__name__)
-    response_object = {"response": "Some error occured, please try again.", "matched": [], "relevant": []}
+    log.error(
+        "agent.node.failed",
+        node=error.node,
+        error=str(error),
+        error_type=type(error.error).__name__,
+    )
+    response_object = {
+        "response": "Some error occured, please try again.",
+        "matched": [],
+        "relevant": [],
+    }
 
     return Command(
         update={"messages": [AIMessage(content=json.dumps(response_object))]},
