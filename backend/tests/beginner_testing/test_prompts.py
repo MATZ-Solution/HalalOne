@@ -12,7 +12,7 @@ from agents.langgraph_agent.prompts.prompt import (
     SEARCH_PROMPT_TRAILER,
     PRODUCT_SCHEMA_KEYWORD,
     PRODUCT_SCHEMA_FILTERS,
-    FILTER_NORMALIZATION,
+    CONTEXT,
     KEYWORD_TOOL_BLOCK,
     SEMANTIC_TOOL_BLOCK,
     WEB_TOOL_BLOCK,
@@ -32,7 +32,7 @@ def test_no_tools_yields_bare_scaffold():
     assert PRODUCT_SCHEMA_HEADER not in out
     assert PRODUCT_SCHEMA_KEYWORD not in out
     assert PRODUCT_SCHEMA_FILTERS not in out    
-    assert FILTER_NORMALIZATION not in out
+    assert CONTEXT not in out
     assert "## TOOLS" not in out
     assert KEYWORD_TOOL_BLOCK not in out
     assert SEMANTIC_TOOL_BLOCK not in out
@@ -48,7 +48,7 @@ def test_keyword_only_pulls_in_schema_and_its_block():
     assert PRODUCT_SCHEMA_KEYWORD in out
     assert PRODUCT_SCHEMA_HEADER in out
     assert PRODUCT_SCHEMA_FILTERS in out
-    assert FILTER_NORMALIZATION in out
+    assert CONTEXT in out
     assert KEYWORD_TOOL_BLOCK in out
     assert SEMANTIC_TOOL_BLOCK not in out
     assert WEB_TOOL_BLOCK not in out
@@ -63,7 +63,7 @@ def test_semantic_only_omits_the_keyword_table():
     assert PRODUCT_SCHEMA_KEYWORD not in out
     assert PRODUCT_SCHEMA_HEADER in out
     assert PRODUCT_SCHEMA_FILTERS in out
-    assert FILTER_NORMALIZATION in out
+    assert CONTEXT in out
     assert SEMANTIC_TOOL_BLOCK in out
     assert KEYWORD_TOOL_BLOCK not in out
     assert WEB_TOOL_BLOCK not in out
@@ -80,7 +80,7 @@ def test_web_only_has_no_schema_section():
     assert PRODUCT_SCHEMA_FILTERS not in out
     assert KEYWORD_TOOL_BLOCK not in out
     assert SEMANTIC_TOOL_BLOCK not in out
-    assert FILTER_NORMALIZATION not in out
+    assert CONTEXT not in out
     assert WEB_TOOL_BLOCK in out
     assert "## TOOLS" in out
 
@@ -100,7 +100,7 @@ def test_all_tools_present_together():
     all land in the prompt."""
     out = build_search_prompt([KEYWORD, SEMANTIC, WEB])
 
-    for piece in (SEARCH_PROMPT_BASE, PRODUCT_SCHEMA_HEADER, SEARCH_PROMPT_TRAILER,PRODUCT_SCHEMA_KEYWORD,PRODUCT_SCHEMA_FILTERS,FILTER_NORMALIZATION,KEYWORD_TOOL_BLOCK,SEMANTIC_TOOL_BLOCK,WEB_TOOL_BLOCK):
+    for piece in (SEARCH_PROMPT_BASE, PRODUCT_SCHEMA_HEADER, SEARCH_PROMPT_TRAILER,PRODUCT_SCHEMA_KEYWORD,PRODUCT_SCHEMA_FILTERS,CONTEXT,KEYWORD_TOOL_BLOCK,SEMANTIC_TOOL_BLOCK,WEB_TOOL_BLOCK):
         assert piece in out
 
 

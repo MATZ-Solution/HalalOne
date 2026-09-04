@@ -54,7 +54,7 @@ standard_llm = ChatGroq(
     api_key=GROQ_API_KEY,
     model="openai/gpt-oss-120b",
     temperature=0,
-    reasoning_effort="low",
+    reasoning_effort="medium",
 )
 
 # use a smaller llm for summarizing conversation histories
