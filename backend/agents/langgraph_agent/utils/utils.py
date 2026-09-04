@@ -1,6 +1,6 @@
+from rapidfuzz import fuzz
 from typing import Optional
 from ..models.models import FilterArgs
-from rapidfuzz import fuzz
 
 COLLECTION = "halal_products"
 

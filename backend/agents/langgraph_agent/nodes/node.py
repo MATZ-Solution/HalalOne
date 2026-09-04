@@ -145,8 +145,8 @@ def tool_node(state: SearchAgentState) -> dict:
     # first tool call sets the trajectory (and its budget)
     if not state.get("first_tool") and ran:
         update["first_tool"] = ran
-    # store the latest keyword criteria for the judge (only on a keyword call)
-    if ran == KeywordFilterSearch.name:
+    # store the first keyword criteria for the judge (only on a keyword call)
+    if ran == KeywordFilterSearch.name and not state.get("first_tool"):
         update["keyword_params"] = keyword_params
         update["filters"] = filters
     return update

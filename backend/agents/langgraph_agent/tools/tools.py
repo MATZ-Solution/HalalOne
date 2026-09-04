@@ -127,7 +127,7 @@ def SemanticFilterSearch(
             "q": "*",
             "vector_query": vector_query,
             "per_page": K,
-            # "exclude_fields": "embedding",
+            "exclude_fields": "embedding",
         }
 
         if filter_str:
@@ -140,6 +140,19 @@ def SemanticFilterSearch(
             "tool.semantic_search.failed", error=str(e), error_type=type(e).__name__
         )
         return []
+
+
+def _grounding_for(grounding: List[Dict], index: int) -> List[Dict]:
+    """Grounding entries for products[index], with the array prefix stripped so each
+    `field` is the bare product field again (the shape the client expects). Exa keys
+    grounding by path — e.g. 'products[0].halal_status' — now that the schema returns
+    a list, so we split it back out per product."""
+    prefix = f"products[{index}]."
+    return [
+        {**g, "field": g["field"][len(prefix):]}
+        for g in grounding
+        if isinstance(g.get("field"), str) and g["field"].startswith(prefix)
+    ]
 
 
 @tool(args_schema=WebSearchInput)
@@ -186,13 +199,15 @@ def WebSearch(query: str) -> List[Dict]:
 
     # Keep only well-formed products; stamp each like a DB product so response_node
     # can select it by id. The `halal_` prefix + verified=False mark it web-sourced.
+    # Enumerate over the raw list so `i` stays aligned with Exa's products[i] paths
+    # even when a malformed product is skipped.
     results: List[Dict] = []
-    for product in products:
+    for i, product in enumerate(products):
         if not product.get("norm_name"):
             continue
         product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
         product["verified"] = False
-        product["grounding"] = grounding
+        product["grounding"] = _grounding_for(grounding, i)
         results.append(product)
     return results
 

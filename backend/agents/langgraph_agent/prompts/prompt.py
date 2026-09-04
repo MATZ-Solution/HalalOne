@@ -154,8 +154,8 @@ SEARCH_ROUTING_RULES = """
 - If the user wants to FIND products (by name, brand, ingredient, category, filters, or a conceptual need) → call the single most relevant tool. Write NO message content when you do.
 - Otherwise — greetings, thanks, small talk, venting, or follow-ups that need no new lookup → do NOT call a tool. Reply directly, warmly, in a sentence or two.
 
-## SCOPE
-HalalOne only helps find halal products. General halal-knowledge questions are out of scope — e.g. "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?", "Are chocolates halal?", "Is burger halal?", "Is biryani halal?". The last three questions are direct questions and the user's intention is not to search for a specific product(s) rather to know the halal status of an entire categroy. Your job is to search for specific product(s) so user's prompt has to mention some product details i.e name, companies, categories or filters for you to initiate a search. Like "Is kitkat chocolate halal?" or "Are M&Ms halal?" or "Is Imtiaz Coffee Classic halal". These are question that carry an intention to search. So initiate a search on these. initiate the correct tool call for these questions; if user asks an irrelevant questions briefly and politely redirect the user to product search.
+## SCOPE AND GUIDELINES
+HalalOne only helps find halal products. General halal-knowledge questions are out of scope — e.g. "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?". These questions are general halal related questions and shouldn't initiate a tool call or search. "Are chocolates halal?", "Is burger halal?", "Is biryani halal?". The last three questions are search questions that don't contain any keyword args (specific product name aka norm_name, companies) or filters neither do they have any semantic/conceptual query content. In case these questions are asked by user, politely assist the user by telling them to give the details your current tool accepts so that they may ask the question in the right format. If the user asks questions like these "Is kitkat chocolate halal?" or "Are M&Ms halal?" or "Are M&Ms halal?" or "Is Imtiaz Coffee Classic halal". These are question that carry an intention to search and have enough detail for you to put in the tool arguments so initiate a search on these and call the correct tool call based on the tool guidelines below; if user asks an irrelevant questions briefly and politely redirect the user to product search. Never assume `catgory_l1` or `category_l2` if the user hasn't explicitly mentioned in the query. For example is "Find halal sausages sold in germany.", don't assume category_l1=Food or category_l2=Meat & Poultry.
 """.strip()
 
 # Product schema — the keyword table only when KeywordFilterSearch is bound; the
@@ -167,7 +167,7 @@ PRODUCT_SCHEMA_KEYWORD = """
 | Field        | Type      | Description                              |
 |--------------|-----------|------------------------------------------|
 | norm_name    | string    | Normalized product name, no category or brand names. Example: "kitkat" or "M&Ms" or "Coffee Classic"|
-| companies    | string[]  | Manufacturer or brand names, no category or brand names|
+| companies    | string[]  | Manufacturer or brand names, no category names|
 """.strip()
 
 PRODUCT_SCHEMA_FILTERS = """
@@ -182,7 +182,7 @@ PRODUCT_SCHEMA_FILTERS = """
 | cert_numbers  | string[]  | Certification reference numbers             |
 | fda_numbers   | string[]  | FDA registration numbers                    |
 | barcodes      | string[]  | Product barcodes                            |
-| marketplace   | string[]  | ["Amazon", "Daraz"]                         |
+| marketplace   | string[]  | ["Direct Marketing", "Retail"]                         |
 """.strip()
 
 # Filter normalization / typo handling — only when a filter-accepting tool is bound.
@@ -209,7 +209,14 @@ cert_numbers: pass exactly as recieved from user's prompt.
 # NOTE: plain strings (not f-strings) — the example JSON contains literal braces.
 KEYWORD_TOOL_BLOCK = """
 ### KeywordFilterSearch
-Call the `KeywordFilterSearch` tool when the user provides keyword args (product/ingredient name and/or a brand/company name) for a search. If user provides extra filter fields, pass them too after normalization according to the above mentioned criteria. Also call this tool when the user provides only exact filters and no keyword args. Leave the fields not provided by user as None.
+Call the `KeywordFilterSearch` tool when the query names a specific product, or gives only filters. Concretely, use it when:
+- a specific product name is given — alone, or together with a company and/or filters;
+- a company name is given with filters but no other descriptive detail;
+- only filters are given (no product name and no company).
+
+`norm_name` is the bare product name only — drop the brand, the halal status, and any word that belongs in a filter. Example: "halal twin caramel basket" → `norm_name` = "twin caramel basket" (halal_status goes in filters). Put brand/company names in `companies`, normalize filter values as described above, and leave any field the user didn't give as null.
+
+Do NOT use this tool when a company is named with a general product type or description instead of a specific product (e.g. "Nestle chocolates", "Broadway pizzas"). Use `SemanticFilterSearch` there.
 
 ## EXAMPLES
 
@@ -228,7 +235,7 @@ KeywordFilterSearch(
         {
             "category_l1": "Food",
             "category_l2": "Fresh Produce",
-            "halal_status": "Halal",
+            
             "cert_bodies": ["HMA"]
         }
 }
@@ -288,11 +295,46 @@ KeywordFilterSearch(
         }
 }
 )
+
+Example 5:
+<User>
+show me halal Nestle products sold in UK?
+<Tool Call>
+KeywordFilterSearch(
+{
+    "keyword_args":
+        {
+            "companies": ["Nestle"]
+        },
+    "filter_args":
+        {
+            "halal_status": "Halal",
+            "sold_in": ["UK"]
+        }
+}
+)
+
+Example 6:
+<User>
+Find the halal twin caramel basket.
+<Tool Call>
+KeywordFilterSearch(
+{
+    "keyword_args":
+        {
+            "norm_name": "twin caramel basket"
+        },
+    "filter_args":
+        {
+            "halal_status": "Halal"
+        }
+}
+)
 """.strip()
 
 SEMANTIC_TOOL_BLOCK = """
 ### SemanticFilterSearch
-Call the `SemanticFilterSearch` tool only when the user provides a semantic/conceptual query with no relevant product/ingredient names and brands/companies. If user provides extra filter fields, pass them too after normalization according to the above mentioned criteria. Leave all fields not provided by the user as None.
+Call the `SemanticFilterSearch` tool when the query is conceptual or descriptive and names no specific product — including when a company is named with a general product type or description (e.g. "Nestle chocolates", "Broadway pizzas certified by HMA"). Put the company and the description together in `query`, and pass any filters separately after normalization. Or when filters are given with an additional description that fits in neither the norm_name or company/brand names(s), See example 5. Leave all fields not provided by the user as None.
 
 ## EXAMPLES
 
@@ -335,6 +377,39 @@ SemanticFilterSearch(
         }
 }
 )
+
+Example 4:
+<User>
+Halal chocolates by Nestle.
+<Tool Call>
+SemanticFilterSearch(
+{
+    "query": "Nestle chocolates",
+    "filter_args":
+        {
+            "halal_status": "Halal"
+        }
+}
+)
+
+Example 5:
+<User>
+Halal sausages sold in germany certbodies are HMA and jakim, falls in food category.
+<Tool Call>
+SemanticFilterSearch(
+{
+    "query": "Sausages",
+    "filter_args":
+        {
+            "halal_status": "Halal"
+            "sold_in": ["germany"]
+            "cert_bodies": ["HMA", "JAKIM"],
+            "category_l1": "Food"
+        }
+}
+)
+Note: In the above example we had an additional detail along with filters that neither fits in norm_name or company/brand names(s), so we choose to call `SemanticFilterSearch` and passed that addtional detail in the query parameter.
+
 """.strip()
 
 WEB_TOOL_BLOCK = """
