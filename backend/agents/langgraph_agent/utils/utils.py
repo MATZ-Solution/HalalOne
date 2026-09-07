@@ -1,5 +1,6 @@
 from rapidfuzz import fuzz
 from typing import Optional
+from langsmith import traceable
 from ..models.models import FilterArgs
 
 COLLECTION = "halal_products"
@@ -279,6 +280,7 @@ def _matches_filters(product: dict, active: dict, norm=None, skip_missing=False)
     return True
 
 
+@traceable
 def apply_filter_check(
     products: list[dict],
     filters: Optional[dict],
