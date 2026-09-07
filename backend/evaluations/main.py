@@ -19,6 +19,9 @@ from config.langsmith_client import get_langsmith_client
 from evaluations.datasets.classification_dataset import (
     dataset_name as classification_dataset_name,
 )
+from evaluations.datasets.combined_product_detection_dataset import (
+    dataset_name as combined_product_dataset_name,
+)
 from evaluations.datasets.company_product_detection_dataset import (
     dataset_name as company_product_dataset_name,
 )
@@ -174,11 +177,24 @@ async def run_product_only_detection_evaluation():
     )
 
 
+# Evaluates Product Detection on Combined (Company+Product & Product-Only) Clean Queries (Two-Tier: Code -> LLM Judge Fallback)
+async def run_combined_product_detection_evaluation():
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_product_detection,
+        data=combined_product_dataset_name,
+        evaluators=[product_detection_evaluator],
+        experiment_prefix="experiment-halal-one-combined-product-detection 1.0",
+        max_concurrency=3,
+    )
+
+
 # Uncomment the evaluation you want to run:
 # asyncio.run(run_classification_evaluation())
 # asyncio.run(run_trajectory_evaluation())
 # asyncio.run(run_search_node_args_evaluation())
 # asyncio.run(run_retrieval_relevance_evaluation())
 # asyncio.run(run_judge_node_evaluation())
-asyncio.run(run_company_product_detection_evaluation())
-asyncio.run(run_product_only_detection_evaluation())
+# asyncio.run(run_company_product_detection_evaluation())
+# asyncio.run(run_product_only_detection_evaluation())
+asyncio.run(run_combined_product_detection_evaluation())
