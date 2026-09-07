@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from langchain.messages import AnyMessage
 from typing import List, TypedDict, Annotated, Literal
+from pydantic import BaseModel, Field, field_validator
 
 
 # main search agent state
@@ -147,6 +148,25 @@ class FilterArgs(BaseModel):
     marketplace: Optional[list[str]] = Field(None, description="Marketplaces like Amazon, eBay") 
 
 
+# class KeywordArgs(BaseModel):
+#     """Text-match keyword fields for KeywordFilterSearch. Both are optional — supply
+#     only what the user's query actually names."""
+#     norm_name: Optional[str] = Field(
+#         None,
+#         description=(
+#             "The product or ingredient name to text-match, reduced to its core terms "
+#             "(lowercase, brand removed). E.g. \"is Shan biryani masala halal?\" -> "
+#             "\"biryani masala\". Null if the query names no product or ingredient."
+#         ),
+#     )
+#     companies: Optional[List[str]] = Field(
+#         None,
+#         description=(
+#             "Brand or company names mentioned in the query, one per list item. "
+#             "E.g. [\"Shan\"], [\"Nestle\", \"Maggi\"]. Null if no brand is named."
+#         ),
+#     )
+
 class KeywordArgs(BaseModel):
     """Text-match keyword fields for KeywordFilterSearch. Both are optional — supply
     only what the user's query actually names."""
@@ -166,6 +186,24 @@ class KeywordArgs(BaseModel):
         ),
     )
 
+    @field_validator("norm_name", mode="before")
+    @classmethod
+    def _coerce_norm_name(cls, v):
+        # The LLM occasionally sends a non-string scalar (int/float/bool) instead of
+        # text. Coerce rather than reject, so a malformed arg degrades to "no
+        # products found" instead of a generic error apology (Finding #5).
+        if v is None or isinstance(v, str):
+            return v
+        return str(v)
+
+    @field_validator("companies", mode="before")
+    @classmethod
+    def _coerce_companies(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            v = [v]
+        return [item if isinstance(item, str) else str(item) for item in v]
 
 class KeywordFilterInput(BaseModel):
     keyword_args: Optional[KeywordArgs] = Field(

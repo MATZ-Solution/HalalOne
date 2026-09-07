@@ -72,7 +72,7 @@ def format_results(docs: List[Dict]) -> str:
     lines = []
     # return results from top4
     for doc in docs[:4]:
-        companies = ", ".join(doc.get("companies", [])) or "N/A"
+        companies = ", ".join(doc.get("companies") or []) or "N/A"
         lines.append(
             f"• [{doc['canonical_id']}] {doc.get('norm_name', 'N/A')}\n"
             f"  Status: {doc.get('halal_status', 'N/A')} | "

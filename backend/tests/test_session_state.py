@@ -12,33 +12,32 @@ What we verify at each layer:
 
 Organised by function, grouped into behavioural classes.
 """
-import json
-import pytest
 import asyncio
+import json
 
+import pytest
 from session_state import (
-    _with_retry,
-    _inflight_key,
-    reserve_pipeline,
-    renew_pipeline,
-    release_pipeline,
-    is_pipeline_inflight,
-    pipeline_lease,
-    load_history,
-    seed_history,
-    append_history,
-    clear_history,
-    load_summary,
-    save_summary,
-    clear_summary,
-    load_compaction,
-    save_compaction,
-    clear_compaction,
     IDLE_COMPACTION,
-    is_session_known,
-    mark_session_known,
+    _inflight_key,
+    _with_retry,
+    append_history,
+    clear_compaction,
+    clear_history,
     clear_session_known,
-    INFLIGHT_TTL,
+    clear_summary,
+    is_pipeline_inflight,
+    is_session_known,
+    load_compaction,
+    load_history,
+    load_summary,
+    mark_session_known,
+    pipeline_lease,
+    release_pipeline,
+    renew_pipeline,
+    reserve_pipeline,
+    save_compaction,
+    save_summary,
+    seed_history,
 )
 
 pytestmark = pytest.mark.unit

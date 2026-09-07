@@ -109,18 +109,19 @@ def _build_results(response: str, result: dict) -> dict:
 
 async def run_agent(query:str, config: dict = None)-> dict:
     if not query:
-        return {"response": "Please enter a valid query", "matched": [], "relevant": []}
+        return _build_results("Please enter a valid query", {})
     result = await asyncio.to_thread(
         search_agent.invoke,
         _initial_state(query, [HumanMessage(query)]),
         config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
     )
     final = json.loads(result["messages"][-1].content)
-    return {
-        "response": final.get("response", ""),
-        "matched": final.get("matched", []),
-        "relevant": final.get("relevant", []),
-    }
+    # return {
+    #     "response": final.get("response", ""),
+    #     "matched": final.get("matched", []),
+    #     "relevant": final.get("relevant", []),
+    # }
+    return _build_results(final.get("response", ""), final)
 
 # ---------------------------------------------------------------------------
 # Conversation summarization / compaction

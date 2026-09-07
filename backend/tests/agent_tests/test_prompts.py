@@ -11,7 +11,7 @@ The contracts checked here:
     (`classification`) with exactly the two values (`search`, `direct`) the router and
     the schema agree on. This is the *working* half of FINDINGS.md #4 — the schema
     (`intent`) is the odd one out, already pinned in the models/node layers.
-  * `SEARCH_PROMPT`'s two field tables must be exactly the `KEYWORD_FIELDS` /
+  * `SEARCH_PROMPT_BASE`'s two field tables must be exactly the `KEYWORD_FIELDS` /
     `FILTER_FIELDS` the tools accept, and its tool names must be the three bound tools.
   * `FINAL_RESPONSE_PROMPT`'s placeholders must be exactly the keys `response_node`
     invokes its chain with, and its output fields must be exactly `SelectedProducts`
@@ -26,7 +26,7 @@ Two findings are pinned:
     `tests/search_tests/search_tests.py`, documents the canonical values as Halal,
     Haraam, Mushbooh). Exact-match haram filters silently match nothing.
     Pinned with `xfail(strict=True)`.
-  * **FINDINGS.md #13** — `CLASSIFICATION_PROMPT` / `SEARCH_PROMPT` carry `{{...}}`
+  * **FINDINGS.md #13** — `CLASSIFICATION_PROMPT` / `SEARCH_PROMPT_BASE` carry `{{...}}`
     template escapes that are never rendered (they are passed raw as `SystemMessage`),
     while `FINAL_RESPONSE_PROMPT` is a real `ChatPromptTemplate`. Pinned as a
     characterisation of the current, inconsistent split.
@@ -39,7 +39,7 @@ from agents.langgraph_agent.models.models import SelectedProducts, classify_inte
 from agents.langgraph_agent.prompts.prompt import (
     CLASSIFICATION_PROMPT,
     FINAL_RESPONSE_PROMPT,
-    SEARCH_PROMPT,
+    SEARCH_PROMPT_BASE,
     SUMMARIZE_CONVERSATION_PROMPT,
 )
 from agents.langgraph_agent.utils.utils import FILTER_FIELDS, KEYWORD_FIELDS
@@ -88,26 +88,26 @@ class TestClassificationPrompt:
 
 class TestSearchPrompt:
     def test_keyword_fields_match_the_utils_contract(self):
-        assert _table_fields(SEARCH_PROMPT, "Keyword-searchable fields") == KEYWORD_FIELDS
+        assert _table_fields(SEARCH_PROMPT_BASE, "Keyword-searchable fields") == KEYWORD_FIELDS
 
     def test_filter_fields_match_the_utils_contract(self):
-        assert _table_fields(SEARCH_PROMPT, "Exact-filterable fields") == FILTER_FIELDS
+        assert _table_fields(SEARCH_PROMPT_BASE, "Exact-filterable fields") == FILTER_FIELDS
 
     def test_mentions_every_bound_tool(self):
         for name in ("KeywordFilterSearch", "SemanticFilterSearch", "WebSearch"):
-            assert name in SEARCH_PROMPT
+            assert name in SEARCH_PROMPT_BASE
 
     def test_web_search_is_marked_last_resort(self):
-        assert "LAST RESORT" in SEARCH_PROMPT
+        assert "LAST RESORT" in SEARCH_PROMPT_BASE
 
     def test_web_search_is_forbidden_before_the_database(self):
-        assert "NEVER call `WebSearch` before the database tools" in SEARCH_PROMPT
+        assert "NEVER call `WebSearch` before the database tools" in SEARCH_PROMPT_BASE
 
     def test_absent_fields_must_be_null(self):
-        assert "pass `null` for that field" in SEARCH_PROMPT
+        assert "pass `null` for that field" in SEARCH_PROMPT_BASE
 
     def test_ambiguous_filters_skip_the_tools(self):
-        assert "do NOT call any tool" in SEARCH_PROMPT
+        assert "do NOT call any tool" in SEARCH_PROMPT_BASE
 
     @pytest.mark.xfail(
         strict=True,
@@ -115,7 +115,7 @@ class TestSearchPrompt:
         "to 'Haram', so exact-match haram filters silently match nothing",
     )
     def test_halal_status_normalises_to_the_collection_spelling(self):
-        assert '"Haraam"' in SEARCH_PROMPT
+        assert '"Haraam"' in SEARCH_PROMPT_BASE
 
 
 class TestFinalResponsePrompt:
@@ -156,10 +156,10 @@ class TestTemplateSplit:
 
     def test_only_final_response_prompt_has_single_brace_placeholders(self):
         assert re.findall(r"\{[A-Za-z_]", CLASSIFICATION_PROMPT) == []
-        assert re.findall(r"\{[A-Za-z_]", SEARCH_PROMPT) == []
+        assert re.findall(r"\{[A-Za-z_]", SEARCH_PROMPT_BASE) == []
         assert len(re.findall(r"\{([A-Za-z_][A-Za-z_0-9]*)\}", FINAL_RESPONSE_PROMPT)) == 2
 
-    def test_classification_and_search_prompts_carry_double_braces(self):
+    def test_classification_and_SEARCH_PROMPT_BASEs_carry_double_braces(self):
         assert "{{" in CLASSIFICATION_PROMPT
-        assert "{{" in SEARCH_PROMPT
+        assert "{{" in SEARCH_PROMPT_BASE
         assert "{{" not in FINAL_RESPONSE_PROMPT

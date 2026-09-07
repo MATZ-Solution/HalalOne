@@ -36,6 +36,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
+from agents.main_agent import format_results
 
 import agents.langgraph_agent.main_langgraph_agent as main
 
@@ -185,8 +186,12 @@ def _messages(message, node="search_node"):
     return {"type": "messages", "ns": [], "data": (message, {"langgraph_node": node})}
 
 
-def _response_update(response="Done", products=None):
-    payload = {"response": response, "products": products or []}
+# def _response_update(response="Done", products=None):
+#     payload = {"response": response, "products": products or []}
+#     return {"messages": [AIMessage(content=json.dumps(payload))]}
+
+def _response_update(response="Done", matched=None, relevant=None):
+    payload = {"response": response, "matched": matched or [], "relevant": relevant or []}
     return {"messages": [AIMessage(content=json.dumps(payload))]}
 
 
@@ -211,7 +216,7 @@ class TestStreamAgent:
         # The invariant finding #16 was about: "type" is the protocol, so no event may
         # omit it. Guards the empty-query path and the normal path in one assertion.
         fake = _FakeStreamAgent(
-            [_updates("response_node", _response_update("Found 1", [{"norm_name": "A"}]))]
+            [_updates("response_node", _response_update("Found 2", matched=[{"norm_name": "A"}]))]
         )
         monkeypatch.setattr(main, "search_agent", fake)
 
@@ -222,12 +227,12 @@ class TestStreamAgent:
 
     async def test_yields_final_results_from_response_node(self, monkeypatch):
         fake = _FakeStreamAgent(
-            [_updates("response_node", _response_update("Found 2", [{"norm_name": "A"}]))]
+            [_updates("response_node", _response_update("Found 2", matched=[{"norm_name": "A"}]))]
         )
         monkeypatch.setattr(main, "search_agent", fake)
         events = await self._collect(fake)
         assert events == [
-            {"type": "results", "response": "Found 2", "documents": [{"norm_name": "A"}]}
+            {"type": "results", "response": "Found 2", "matched": [{"norm_name": "A"}], "relevant": [], "documents": [{"norm_name": "A"}]}
         ]
 
     async def test_stops_after_the_first_response_node_update(self, monkeypatch):
@@ -239,7 +244,7 @@ class TestStreamAgent:
         )
         monkeypatch.setattr(main, "search_agent", fake)
         events = await self._collect(fake)
-        assert events == [{"type": "results", "response": "First", "documents": []}]
+        assert events == [{"type": "results", "response": "First", "matched": [], "relevant": [], "documents": []}]
 
     async def test_yields_results_from_the_error_handler(self, monkeypatch):
         apology = {"response": "Some error occured, please try again.", "products": []}
@@ -248,7 +253,7 @@ class TestStreamAgent:
         )
         monkeypatch.setattr(main, "search_agent", fake)
         events = await self._collect(fake)
-        assert events == [{"type": "results", "response": apology["response"], "documents": []}]
+        assert events == [{"type": "results", "response": apology["response"], "matched": [], "relevant": [], "documents": []}]
 
     async def test_ignores_updates_from_unknown_nodes(self, monkeypatch):
         fake = _FakeStreamAgent(
@@ -259,7 +264,7 @@ class TestStreamAgent:
         )
         monkeypatch.setattr(main, "search_agent", fake)
         events = await self._collect(fake)
-        assert events == [{"type": "results", "response": "Ok", "documents": []}]
+        assert events == [{"type": "results", "response": "Ok", "matched": [], "relevant": [], "documents": []}]
 
     async def test_yields_web_source_events(self, monkeypatch):
         source = {"type": "web_source", "url": "https://x", "title": "T", "favicon": "f", "highlights": ["h"]}
@@ -292,7 +297,7 @@ class TestStreamAgent:
         )
         monkeypatch.setattr(main, "search_agent", fake)
         events = await self._collect(fake)
-        assert events == [{"type": "results", "response": "Nothing", "documents": []}]
+        assert events == [{"type": "results", "response": "Nothing", "matched": [], "relevant": [], "documents": []}]
 
     async def test_keyword_tool_status_with_keywords_and_filters(self, monkeypatch):
         args = {"keyword_args": {"norm_name": "x"}, "filter_args": {"halal_status": "Halal"}}
@@ -361,20 +366,32 @@ class TestRunAgent:
 
         monkeypatch.setattr(main, "search_agent", SimpleNamespace(invoke=invoke))
         result = await main.run_agent("")
-        assert result == {"response": "Please enter a valid query", "documents": []}
+        assert result == {"type": "results", "response": "Please enter a valid query", "matched": [], "relevant": [], "documents": []}
         assert calls == []
 
+    # async def test_parses_final_message_into_response_and_documents(self, monkeypatch):
+    #     products = [{"norm_name": "KitKat"}, {"norm_name": "Snickers"}]
+
+    #     def invoke(input, config=None):
+    #         assert input["user_prompt"] == "kitkat"
+    #         return {"messages": [AIMessage(content=json.dumps({"response": "Found", "products": products}))]}
+
+    #     monkeypatch.setattr(main, "search_agent", SimpleNamespace(invoke=invoke))
+    #     result = await main.run_agent("kitkat")
+    #     assert result["response"] == "Found"
+    #     assert [p.norm_name for p in result["documents"]] == ["KitKat", "Snickers"]
+
     async def test_parses_final_message_into_response_and_documents(self, monkeypatch):
-        products = [{"norm_name": "KitKat"}, {"norm_name": "Snickers"}]
+        matched = [{"norm_name": "KitKat"}, {"norm_name": "Snickers"}]
 
         def invoke(input, config=None):
             assert input["user_prompt"] == "kitkat"
-            return {"messages": [AIMessage(content=json.dumps({"response": "Found", "products": products}))]}
+            return {"messages": [AIMessage(content=json.dumps({"response": "Found", "matched": matched, "relevant": []}))]}
 
         monkeypatch.setattr(main, "search_agent", SimpleNamespace(invoke=invoke))
         result = await main.run_agent("kitkat")
         assert result["response"] == "Found"
-        assert [p.norm_name for p in result["documents"]] == ["KitKat", "Snickers"]
+        assert [p["norm_name"] for p in result["documents"]] == ["KitKat", "Snickers"]
 
     async def test_parses_the_apology_from_the_error_handler(self, monkeypatch):
         apology = {"response": "Some error occured, please try again.", "products": []}
@@ -383,7 +400,7 @@ class TestRunAgent:
             SimpleNamespace(invoke=lambda input, config=None: {"messages": [AIMessage(content=json.dumps(apology))]}),
         )
         result = await main.run_agent("x")
-        assert result == {"response": apology["response"], "documents": []}
+        assert result == {"type": "results", "response": apology["response"], "matched": [], "relevant": [], "documents": []}
 
     async def test_passes_the_supplied_config_through(self, monkeypatch):
         seen = {}
@@ -569,6 +586,29 @@ def test_keep_messages_uses_the_documented_default_of_ten_turns():
     assert main.KEEP_MESSAGES == 20
 
 
+# @pytest.mark.parametrize(
+#     "companies,cert_bodies",
+#     [
+#         pytest.param(None, ["B"], id="no-companies"),
+#         pytest.param(["A"], None, id="no-cert-bodies"),
+#         pytest.param(None, None, id="neither"),
+#     ],
+# )
+# def test_format_results_tolerates_products_without_companies_or_cert_bodies(
+#     companies, cert_bodies
+# ):
+#     # Finding #15, fixed: `' '.join(product.companies)` raised TypeError on web-sourced
+#     # products (verified=False), which carry neither field — precisely the products the
+#     # agent fell back to the web for. The helper is currently dead code (its only call
+#     # site is commented out), so this guards the crash for whoever re-enables it.
+#     product = SimpleNamespace(norm_name="X", companies=companies, cert_bodies=cert_bodies)
+#     format_results([product])  # must not raise
+
+
+# def test_format_results_still_logs_the_fields_it_has():
+#     product = SimpleNamespace(norm_name="X", companies=["Acme"], cert_bodies=["HFA"])
+    # format_results([product])  # must not raise
+
 @pytest.mark.parametrize(
     "companies,cert_bodies",
     [
@@ -580,14 +620,10 @@ def test_keep_messages_uses_the_documented_default_of_ten_turns():
 def test_format_results_tolerates_products_without_companies_or_cert_bodies(
     companies, cert_bodies
 ):
-    # Finding #15, fixed: `' '.join(product.companies)` raised TypeError on web-sourced
-    # products (verified=False), which carry neither field — precisely the products the
-    # agent fell back to the web for. The helper is currently dead code (its only call
-    # site is commented out), so this guards the crash for whoever re-enables it.
-    product = SimpleNamespace(norm_name="X", companies=companies, cert_bodies=cert_bodies)
-    main.format_results([product])  # must not raise
+    product = {"norm_name": "X", "companies": companies, "cert_bodies": cert_bodies, "canonical_id": "1", "halal_status": "Halal", "category_l1": "", "category_l2": ""}
+    format_results([product])  # must not raise
 
 
 def test_format_results_still_logs_the_fields_it_has():
-    product = SimpleNamespace(norm_name="X", companies=["Acme"], cert_bodies=["HFA"])
-    main.format_results([product])  # must not raise
+    product = {"norm_name": "X", "companies": ["Acme"], "cert_bodies": ["HFA"], "canonical_id": "1", "halal_status": "Halal", "category_l1": "", "category_l2": ""}
+    format_results([product])  # must not raise

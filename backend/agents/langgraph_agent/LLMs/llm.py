@@ -1,9 +1,12 @@
 import os
 import warnings
+
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
 from langchain_cerebras import ChatCerebras
+from langchain_groq import ChatGroq
+
 from ..models.models import JudgeVerdict
+
 # from langchain_aws import ChatBedrockConverse
 
 load_dotenv()
@@ -18,6 +21,7 @@ warnings.filterwarnings(
 )
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+print("GROQ_API_KEY:", GROQ_API_KEY)
 CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY')
 # AWS_BEARER_TOKEN_BEDROCK = os.getenv('AWS_BEARER_TOKEN_BEDROCK')
 

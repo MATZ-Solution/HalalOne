@@ -116,8 +116,8 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
             "collection": COLLECTION,
             "q": "*",
             "vector_query": vector_query,
-            "per_page": K
-            # "exclude_fields": "embedding",
+            "per_page": K,
+            "exclude_fields": "embedding",
         }
 
         if filter_str:

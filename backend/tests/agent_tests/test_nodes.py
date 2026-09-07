@@ -34,7 +34,7 @@ from langgraph.types import Command
 
 import agents.langgraph_agent.nodes.node as node
 from agents.langgraph_agent.models.models import OutputSchema, SelectedProducts, classify_intent_schema
-from agents.langgraph_agent.prompts.prompt import CLASSIFICATION_PROMPT, SEARCH_PROMPT
+from agents.langgraph_agent.prompts.prompt import CLASSIFICATION_PROMPT, SEARCH_PROMPT_BASE
 from agents.langgraph_agent.tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
 
 pytestmark = pytest.mark.unit
@@ -212,7 +212,7 @@ class TestSearchNode:
         node.search_node(state)
         seen = fake_standard_llm.messages_seen
         assert isinstance(seen[0], SystemMessage)
-        assert seen[0].content == SEARCH_PROMPT
+        assert seen[0].content == SEARCH_PROMPT_BASE
         assert seen[1:] == state["messages"]
 
     def test_missing_messages_key_raises_keyerror(self, fake_standard_llm):

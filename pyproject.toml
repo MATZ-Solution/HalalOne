@@ -1,0 +1,29 @@
+[project]
+name = "halalone"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "agentevals>=0.0.9",
+    "fastapi>=0.141.1",
+    "gunicorn>=26.2.0",
+    "httpx>=0.28.1",
+    "langchain>=1.3.18",
+    "langchain-cerebras>=0.8.2",
+    "langchain-core>=1.6.1",
+    "langchain-fireworks>=1.6.1",
+    "langchain-groq>=1.1.3",
+    "langgraph>=1.2.11",
+    "langsmith>=0.12.1",
+    "pydantic>=2.12.5",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "python-dotenv>=1.2.3",
+    "rapidfuzz>=3.14.6",
+    "structlog>=26.1.0",
+    "supabase>=2.31.0",
+    "typesense>=2.0.0",
+    "uvicorn[standard]>=0.52.4",
+    "valkey>=6.1.1",
+]
