@@ -116,7 +116,7 @@ def SemanticFilterSearch(
 
         if filter_str:
             vector_query = (
-                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K}"
+                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K}, "
                 f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF})"
             )
         else:
