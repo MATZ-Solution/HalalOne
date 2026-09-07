@@ -1,20 +1,22 @@
 import uuid
-from log.logger import log
-from langchain.tools import tool
-from ..utils.web_search import stream_web_search
-from typing import Dict, Optional, List, Any
-from config.typesense_client import TS_CLIENT
-from langgraph.config import get_stream_writer
-from ..embeddings.embeddings import embedding_model
+from typing import Any
+
 from collection.search.search_collection import search_collection
-from ..utils.utils import KEYWORD_FIELD_ORDER, COLLECTION, build_filter_string
+from config.typesense_client import TS_CLIENT
+from langchain.tools import tool
+from langgraph.config import get_stream_writer
+from log.logger import log
+
+from ..embeddings.embeddings import embedding_model
 from ..models.models import (
-    KeywordFilterInput,
-    KeywordArgs,
     FilterArgs,
+    KeywordArgs,
+    KeywordFilterInput,
     SemanticFilterInput,
     WebSearchInput,
 )
+from ..utils.utils import COLLECTION, KEYWORD_FIELD_ORDER, build_filter_string
+from ..utils.web_search import stream_web_search
 
 NARROW_KEYWORD_LIMIT = 250
 FINAL_KEYWORD_LIMIT = 10
@@ -26,8 +28,8 @@ DISTANCE_THRESHOLD = 0.3
 
 @tool(args_schema=KeywordFilterInput)
 def KeywordFilterSearch(
-    keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None
-) -> List[Dict]:
+    keyword_args: KeywordArgs | None = None, filter_args: FilterArgs | None = None
+) -> list[dict]:
     """Search halal products by keyword. USE THIS when the query names a specific
     product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body, location, marketplace, barcode, etc.).
 
@@ -93,8 +95,8 @@ def KeywordFilterSearch(
 
 @tool(args_schema=SemanticFilterInput)
 def SemanticFilterSearch(
-    semantic_query: str, filter_args: Optional[FilterArgs] = None
-) -> List[Dict]:
+    semantic_query: str, filter_args: FilterArgs | None = None
+) -> list[dict]:
     """Search halal products by semantic/vector similarity. USE THIS only when the
     query is conceptual or descriptive with NO specific product/brand named — e.g.
     "a calcium-rich snack for children", "natural red food colouring", "good for
@@ -116,13 +118,13 @@ def SemanticFilterSearch(
 
         if filter_str:
             vector_query = (
-                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K}"
+                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K} ,"
                 f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF})"
             )
         else:
             vector_query = f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K})"
 
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "collection": COLLECTION,
             "q": "*",
             "vector_query": vector_query,
@@ -142,21 +144,21 @@ def SemanticFilterSearch(
         return []
 
 
-def _grounding_for(grounding: List[Dict], index: int) -> List[Dict]:
+def _grounding_for(grounding: list[dict], index: int) -> list[dict]:
     """Grounding entries for products[index], with the array prefix stripped so each
     `field` is the bare product field again (the shape the client expects). Exa keys
     grounding by path — e.g. 'products[0].halal_status' — now that the schema returns
     a list, so we split it back out per product."""
     prefix = f"products[{index}]."
     return [
-        {**g, "field": g["field"][len(prefix):]}
+        {**g, "field": g["field"][len(prefix) :]}
         for g in grounding
         if isinstance(g.get("field"), str) and g["field"].startswith(prefix)
     ]
 
 
 @tool(args_schema=WebSearchInput)
-def WebSearch(query: str) -> List[Dict]:
+def WebSearch(query: str) -> list[dict]:
     """Web search for a specific halal product, used only as a fallback
     when the database keyword search found no exact match. Streams the sources being
     searched to the client, then returns the product Exa synthesised (UNVERIFIED,
@@ -172,8 +174,8 @@ def WebSearch(query: str) -> List[Dict]:
     except Exception:
         writer = None
 
-    products: List[Dict] = []
-    grounding: List[Dict] = []
+    products: list[dict] = []
+    grounding: list[dict] = []
     try:
         for event in stream_web_search(query):
             etype = event.get("type")
@@ -201,7 +203,7 @@ def WebSearch(query: str) -> List[Dict]:
     # can select it by id. The `halal_` prefix + verified=False mark it web-sourced.
     # Enumerate over the raw list so `i` stays aligned with Exa's products[i] paths
     # even when a malformed product is skipped.
-    results: List[Dict] = []
+    results: list[dict] = []
     for i, product in enumerate(products):
         if not product.get("norm_name"):
             continue
