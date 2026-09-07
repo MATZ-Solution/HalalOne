@@ -101,6 +101,9 @@ def _build_results(response: str, result: dict) -> dict:
         "matched": matched,
         "relevant": relevant,
         "documents": matched + relevant,
+        # Section tag for the matched bucket: "Matches" (semantic) or "Exact Matches"
+        # (keyword). Defaults for the error path, which has no label.
+        "match_label": result.get("match_label", "Exact Matches"),
     }
 
 
