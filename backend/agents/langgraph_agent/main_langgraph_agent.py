@@ -14,7 +14,7 @@ from .LLMs.llm import summarizer_llm
 from .prompts.prompt import SUMMARIZE_CONVERSATION_PROMPT
 from .models.models import SearchAgentState
 from .nodes.node import (
-    classify_intent, search_node, tool_node, judge_node, orchestration_node,
+    search_node, tool_node, judge_node, orchestration_node,
     response_node, should_continue, default_error_handler,
 )
 from dotenv import load_dotenv
@@ -37,16 +37,12 @@ workflow.set_node_defaults(
     retry_policy=RetryPolicy(max_attempts=3, retry_on=default_retry_on), error_handler=default_error_handler
 )
 
-workflow.add_node(
-    "classify_intent",
-    classify_intent,
-)
 workflow.add_node("search_node", search_node)
 workflow.add_node("tool_node", tool_node)
 workflow.add_node("judge_node", judge_node)
 workflow.add_node("orchestration_node", orchestration_node)
 workflow.add_node("response_node", response_node)
-workflow.add_edge(START, "classify_intent")
+workflow.add_edge(START, "search_node")
 workflow.add_conditional_edges(
     "search_node",
     should_continue,
