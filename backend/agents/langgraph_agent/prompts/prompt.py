@@ -1,4 +1,5 @@
 from log.logger import log
+
 from ..utils.utils import CANONICAL_LISTS, KEYWORD, SEMANTIC, WEB
 
 CLASSIFICATION_PROMPT = """
@@ -169,21 +170,24 @@ INSTR_KEYWORD_NAME = """Whenever a user gives a prompt, classify whether it cont
 INSTR_KEYWORD_FILTERS_ONLY = "When ONLY filters are present in the query, ALWAYS call the 'KeywordFilterSearch' tool."
 
 # --- Keyword ↔ Semantic boundary (only when BOTH are bound) ---
-INSTR_KEYWORD_SEMANTIC_BOUNDARY = """When the norm-name is not present in the query and only a company/brand name(s) is present, either with or without filters, check whether there is any other detail present that can't be placed into the norm-name or any of the filter fields. If so, call the 'SemanticFilterSearch' tool and pass both the company/brand name(s) in the query parameter and any filters in their respective fields, if present. For example: "Are halal sausages from Red Meat Inc, sold in Germany, halal?" Here we have company = Red Meat Inc, sold-in = Germany, halal-status = Halal, but there's an extra detail, "sausages," which can't be placed into the norm-name or any of the filters. So call 'SemanticFilterSearch' with the query parameter "Red Meat Inc sausages" and the corresponding filters. When no other detail is present, call the 'KeywordFilterSearch' tool."""
+INSTR_KEYWORD_SEMANTIC_BOUNDARY = """When the norm-name is not present in the query and only a company/brand name(s) is present, either with or without filters, check whether there is any other detail present that can't be placed into the norm-name or any of the filter fields. If so, call the 'SemanticFilterSearch' tool: put the company/brand name(s) in BOTH the `query` parameter and the `companies` argument, and pass any filters in their respective fields. For example: "Are halal sausages from Red Meat Inc, sold in Germany, halal?" Here we have company = Red Meat Inc, sold-in = Germany, halal-status = Halal, but there's an extra detail, "sausages," which can't be placed into the norm-name or any of the filters. So call 'SemanticFilterSearch' with `query` = "Red Meat Inc sausages", `companies` = ["Red Meat Inc"], and the corresponding filters. When no other detail is present, call the 'KeywordFilterSearch' tool."""
 
 # --- SemanticFilterSearch selection (only when SEMANTIC is bound) ---
 INSTR_SEMANTIC = """When a user gives a prompt that contains semantic/conceptual/meaningful content and NO norm-name, ALWAYS call the 'SemanticFilterSearch' tool, regardless of what else is given. Examples: "Famous Middle Eastern cuisines in New York," "Food that is irresistible and yummy." Notice that there isn't any norm-name present — just a concept and some filters, like category-l1='Food' or sold-in='New York'. Whatever already appears in the filters should NEVER also appear in the query parameter — e.g., in "Famous cuisines in New York," "New York" is redundant since it's already captured in the filters."""
 
-INSTR_INTENT_SCOPE = """ALWAYS determine whether the user actually wants to search for a product or not. 
+# --- Intent / scope (only on the first, unforced call) ---
+INSTR_INTENT_SCOPE = """ALWAYS determine whether the user actually wants to search for a product or not. A prompt may contain a specific product name, brand/company name, or semantic content, but the user's intention might not be to search. For example: "Big Bay sauce sold in the UK is delicious." This is not a search intent, so don't call any tools.
 
-IMPORTANT: Inquiries asking whether a specific product or brand is halal (e.g., "Is Nutella Biscuits of Ferrero halal or haram?", "Is Nutella Biscuits halal?", "Can Muslims eat KitKat?", "Is Doritos halal?") ARE explicit product verification requests and MUST ALWAYS trigger a product search tool call.
+Decide search vs redirect by WHAT IS NAMED, not by the sentence shape — a yes/no "is X halal?" can still be a search:
+- If the message names a BRAND/COMPANY or a SPECIFIC PRODUCT, treat it as a SEARCH — even when phrased as "is X halal?". Examples that ARE searches: "is KitKat halal?" (specific product), "are Nestle chocolates halal?" (brand + a type → SemanticFilterSearch), "is Shan biryani masala halal?". Hand these to the tool-selection rules; do NOT redirect them.
+- Only redirect when NO brand and NO specific product is named — i.e. a bare type or a general halal-knowledge question. Examples that are NOT searches: "Are all chocolates halal?", "is burger halal?" (bare category, nothing specific), and knowledge questions like "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?".
 
-A prompt may contain a specific product name, brand/company name, or semantic content, but the user's intention might not be to search. For example: "Big Bay sauce sold in the UK is delicious." This is just an opinion/statement, so don't call any tools. Similarly, general conceptual questions without a specific product — e.g., "Are all chocolates halal?", "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?" — fall entirely outside product search and shouldn't initiate a search either. Your sole purpose and specialization is to help verify and find halal products for users, so in general-concept cases politely acknowledge their sentiment and redirect to product search."""
+For the redirect cases: these fall outside your scope, so don't initiate a search/tool call. Your sole purpose and specialization is to help find halal products for users, so politely acknowledge their sentiment and redirect to your specific purpose in a creative way. Ask a follow-up question relevant to their query but focused towards product search."""
 
 # --- Argument extraction (always) ---
-INSTR_NO_INFER = "Never infer any tool argument unless it is explicitly mentioned by the user. Example: \"Find me halal chocolates.\" Don't infer category-l1=Food or category-l2=Snacks & Confectionery. Just use what's explicitly given, and leave everything else as None."
+INSTR_NO_INFER = "Never infer any tool argument unless it is explicitly mentioned by the user. Example: \"Find me halal chocolates from Mars.\" Don't infer category-l1=Food or category-l2=Snacks & Confectionery. Just use what's explicitly given, and leave everything else as None."
 
-INSTR_KEYWORD_WEB = "Whenever a keyword tool fails to return any results, always call either the `WebSearch` tool or the `KeywordFilterSearch` tool, depending on what tools are available."
+INSTR_KEYWORD_WEB = "A `WebSearch` tool is your fallback after the database tools return nothing — use it to look the product up on the web. If `WebSearch` is the ONLY tool available to you, calling it is OBLIGATORY: never answer without calling it."
 
 # --- Filter normalization (only when a filter-accepting tool is bound) ---
 INSTR_NORMALIZATION = """Normalize filter values before passing them to a tool.
@@ -403,6 +407,7 @@ Halal chocolates by Nestle.
 SemanticFilterSearch(
 {
     "query": "Nestle chocolates",
+    "companies": ["Nestle"],
     "filter_args":
         {
             "halal_status": "Halal"

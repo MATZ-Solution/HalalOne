@@ -24,6 +24,10 @@ FINAL_KEYWORD_LIMIT = 10
 K = 8
 FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
+# Vector weight in a hybrid (keyword + vector) semantic search. 0.5 = balance brand
+# match and conceptual relevance; lower leans toward the brand keyword, higher toward
+# the concept. Only used when a company/brand arg is present.
+HYBRID_ALPHA = 0.5
 
 
 @tool(args_schema=KeywordFilterInput)
@@ -95,15 +99,19 @@ def KeywordFilterSearch(
 
 @tool(args_schema=SemanticFilterInput)
 def SemanticFilterSearch(
-    semantic_query: str, filter_args: FilterArgs | None = None
-) -> list[dict]:
-    """Search halal products by semantic/vector similarity. USE THIS only when the
-    query is conceptual or descriptive with NO specific product/brand named — e.g.
-    "a calcium-rich snack for children", "natural red food colouring", "good for
-    diabetics".
+    semantic_query: str,
+    companies: Optional[List[str]] = None,
+    filter_args: Optional[FilterArgs] = None,
+) -> List[Dict]:
+    """Search halal products by semantic/vector similarity. USE THIS when the query is
+    conceptual/descriptive with no specific product name — e.g. "a calcium-rich snack
+    for children" — INCLUDING when a brand is named with a general type ("Nestle
+    chocolates"): pass the brand in `companies` (and keep it in the query too).
 
     Args:
-      semantic_query: a natural-language phrase capturing the user's intent.
+      semantic_query: a natural-language phrase capturing the additional detail other that can't go in the other fields.
+      companies: brand/company names, if any. When set, runs a hybrid (keyword+vector)
+        search so brand-matching products surface. Null if no brand is named.
       filter_args: same exact-match filters as KeywordFilterSearch. Pass null if none.
     """
     # The embedding call is a network round-trip to Fireworks and belongs inside the
@@ -116,22 +124,26 @@ def SemanticFilterSearch(
 
         filter_str = build_filter_string(filter_args)
 
+        # A brand triggers a HYBRID search: keyword-match on `companies` fused with the
+        # vector search (weighted by alpha) so brand-matching products get surfaced.
+        # `alpha` only applies in hybrid; `flat_search_cutoff` only when filters narrow
+        # the pool. Params are comma-joined so the vector-query string is always valid.
+        vq_params = [f"distance_threshold: {DISTANCE_THRESHOLD}", f"k:{K}"]
+        if companies:
+            vq_params.append(f"alpha:{HYBRID_ALPHA}")
         if filter_str:
-            vector_query = (
-                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K} ,"
-                f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF})"
-            )
-        else:
-            vector_query = f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K})"
+            vq_params.append(f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF}")
+        vector_query = f"embedding:([{embedding_str}], " + ", ".join(vq_params) + ")"
 
         params: dict[str, Any] = {
             "collection": COLLECTION,
-            "q": "*",
+            "q": " ".join(companies) if companies else "*",
             "vector_query": vector_query,
             "per_page": K,
             "exclude_fields": "embedding",
         }
-
+        if companies:
+            params["query_by"] = "companies"
         if filter_str:
             params["filter_by"] = filter_str
         result = TS_CLIENT.multi_search.perform({"searches": [params]}, {})

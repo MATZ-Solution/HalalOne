@@ -243,7 +243,7 @@ async def _stream_and_persist(
                             log.error("ws.user_message.persist_failed", error=str(e), error_type=type(e).__name__)
                     # Persist the matched/relevant split (frontend display source of
                     # truth). JSONB column, so no schema change.
-                    msg_id = await chat_store.insert_message(session_id, "assistant", response, {"matched": matched, "relevant": relevant})
+                    msg_id = await chat_store.insert_message(session_id, "assistant", response, {"matched": matched, "relevant": relevant, "match_label": chunk.get("match_label")})
                     # Carry the DB id so a client that already loaded this message
                     # via chat_history can drop the duplicate instead of appending
                     # the same answer twice.
