@@ -423,7 +423,7 @@ AGENT EXECUTION OUTPUT:
             api_key=GROQ_API_KEY, model="openai/gpt-oss-20b", temperature=0
         )
         judge_llm_structured = judge_llm.with_structured_output(
-            ProductJudgeVerdict, method="json_mode"
+            ProductJudgeVerdict, method="json_schema"
         )
         verdict: ProductJudgeVerdict = await judge_llm_structured.ainvoke(
             [
