@@ -456,24 +456,28 @@ async def extract_image_endpoint(req: ExtractImageRequest, authorization: str = 
         # global LLM budget. One user can neither spam the endpoint nor dominate the
         # shared LLM budget.
         if not await allow_user(user_id, "extract-image"):
+            log.warning("ratelimit.rejected", kind="user_req_rate", action="http.extract_image")
             raise HTTPException(status_code=429, detail="Too many requests, please slow down")
         if not await try_consume_user_llm(user_id):
+            log.warning("ratelimit.rejected", kind="user_llm", action="http.extract_image")
             raise HTTPException(status_code=429, detail="You've reached your request limit for now, please wait a moment")
         if not await try_consume_llm():
+            log.warning("ratelimit.rejected", kind="global_llm", action="http.extract_image")
             raise HTTPException(status_code=429, detail="High load, please retry shortly")
         image_url = build_image_url(req.base64, req.mime_type)
         if not image_url:
             raise HTTPException(status_code=400, detail="Invalid image data")
-        for _ in range(3):
-            try:
-                print("invoking llm with image")
-                result = await invoke_llm_with_image(image_url)
-                if "error" not in result:
-                    return {"fields": result}
-            except Exception as e:
-                print("Some error occured while invoking image llm", e)
-                log.error("http.extract_image.failed", error=str(e), error_type=type(e).__name__)
-        raise HTTPException(status_code=422, detail="Failed to extract image information")
+        # invoke_llm_with_image already does model fallback + feedback retries under an
+        # overall deadline, so call it ONCE — an outer retry loop would multiply that
+        # deadline (3x) and blow past the client's timeout.
+        try:
+            result = await invoke_llm_with_image(image_url)
+        except Exception as e:
+            log.error("http.extract_image.failed", error=str(e), error_type=type(e).__name__)
+            raise HTTPException(status_code=422, detail="Failed to extract image information")
+        if "error" in result:
+            raise HTTPException(status_code=422, detail=result["error"])
+        return {"fields": result}
 
 
 @app.websocket("/ws")
@@ -499,10 +503,13 @@ async def websocket_endpoint(
     # capacity or coordination state (Valkey) is unavailable.
     conn_id = await open_connection()
     if conn_id is None:
+        log.warning("ws.connection.rejected", reason="capacity", user_id=user_id)
         await websocket.close(code=1013, reason="Server at capacity, please retry later")
         return
 
     await websocket.accept()
+    # Connection lifecycle events: pair opened/closed to chart concurrent connections.
+    log.info("ws.connection.opened", user_id=user_id)
     # One connection serves all of a user's sessions; the session id travels in
     # each message. All per-session state (conversation history, the in-flight
     # guard) now lives in Valkey, so nothing session-scoped is kept in this
@@ -562,9 +569,11 @@ async def websocket_endpoint(
         """Gate an LLM-backed op: per-user budget first (fairness), then the global
         budget (capacity). Sends the matching rejection and returns False if blocked."""
         if not await try_consume_user_llm(user_id):
+            log.warning("ratelimit.rejected", kind="user_llm", user_id=user_id)
             await safe_send(rate_limited(USER_LLM_REASON, 30))
             return False
         if not await try_consume_llm():
+            log.warning("ratelimit.rejected", kind="global_llm", user_id=user_id)
             await safe_send(rate_limited(LLM_BUSY_REASON, 30))
             return False
         return True
@@ -673,30 +682,16 @@ async def websocket_endpoint(
                 if not image_url:
                     await publish_chunk(user_id, session_id, {"type": "results", "response": "Try uploading another image", "documents": []})
                     return
-                response = {}
-                success = False
-                # add retry logic here
-                for i in range(3):
-                    try:
-                        response = await invoke_llm_with_image(image_url)
-                        error = response.get("error")
-                        if error:
-                            if i == 2:
-                                await publish_chunk(user_id, session_id, {"type": "results", "response": response["error"], "documents": []})
-                                success = False
-                                break
-                            continue
-                        else:
-                            success = True
-                            break
-                    except Exception as e:
-                        log.error("ws.image.extract_failed", error=str(e), error_type=type(e).__name__)
-                        if i == 2:
-                            await publish_chunk(user_id, session_id, {"type": "results", "response": "Error occured while parsing image details, try again.", "documents": []})
-                            success = False
-                            break
-                        continue
-                if not success:
+                # invoke_llm_with_image owns model fallback + feedback retries under an
+                # overall deadline, so call it once (no outer retry loop).
+                try:
+                    response = await invoke_llm_with_image(image_url)
+                except Exception as e:
+                    log.error("ws.image.extract_failed", error=str(e), error_type=type(e).__name__)
+                    await publish_chunk(user_id, session_id, {"type": "results", "response": "Error occured while parsing image details, try again.", "documents": []})
+                    return
+                if response.get("error"):
+                    await publish_chunk(user_id, session_id, {"type": "results", "response": response["error"], "documents": []})
                     return
                 parts = []
                 # v can only be string or an array of strings
@@ -806,6 +801,7 @@ async def websocket_endpoint(
             # Per-user inbound message rate. Over budget -> drop this message
             # (keep the socket) and tell the client to retry shortly.
             if not await allow_message(user_id):
+                log.warning("ratelimit.rejected", kind="user_msg_rate", user_id=user_id)
                 await safe_send(rate_limited(MSG_RATE_REASON, 1))
                 continue
 
@@ -917,6 +913,7 @@ async def websocket_endpoint(
     finally:
         # Release the global connection slot.
         await close_connection(conn_id)
+        log.info("ws.connection.closed", user_id=user_id)
         # Stop relaying to a socket nobody is listening on, and hand the pubsub
         # connection back to the pool.
         forwarder.cancel()

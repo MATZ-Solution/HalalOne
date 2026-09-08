@@ -172,6 +172,8 @@ def tool_node(state: SearchAgentState) -> dict:
 
         observation = tool.invoke(tool_call["args"]) or []
         ran = tool_call["name"]
+        # Chart the tool mix (keyword / semantic / web) and whether it returned rows.
+        log.info("tool.invoked", tool=tool_call["name"], results=len(observation))
         # Capture the match criteria for the judge / web-fallback query.
         if tool_call["name"] == KeywordFilterSearch.name:
             keyword_params = tool_call["args"].get("keyword_args")
