@@ -25,6 +25,9 @@ from evaluations.datasets.combined_product_detection_dataset import (
 from evaluations.datasets.company_product_detection_dataset import (
     dataset_name as company_product_dataset_name,
 )
+from evaluations.datasets.custom_product_eval_dataset import (
+    dataset_name as custom_product_dataset_name,
+)
 from evaluations.datasets.judge_node_dataset import variant_dataset_name
 from evaluations.datasets.product_only_detection_dataset import (
     dataset_name as product_only_dataset_name,
@@ -40,6 +43,9 @@ from evaluations.datasets.search_node_args_dataset import (
 from evaluations.datasets.trajectory_dataset import (
     dataset_name as trajectory_dataset_name,
 )
+from evaluations.datasets.vision_product_dataset import (
+    dataset_name as vision_product_dataset_name,
+)
 
 # Evaluators
 from evaluations.evaluators.classification_correctness import correct_classification
@@ -52,6 +58,9 @@ from evaluations.evaluators.search_node_args_evaluator import (
     search_node_args_correctness,
 )
 from evaluations.evaluators.trajectory_correctness import agent_trajectory_correctness
+from evaluations.evaluators.vision_extraction_evaluator import (
+    vision_extraction_evaluator,
+)
 from evaluations.target_functions.intent_classifier import run_intent_classifier
 from evaluations.target_functions.judge_node import run_judge_node
 from evaluations.target_functions.product_detection import run_product_detection
@@ -60,6 +69,7 @@ from evaluations.target_functions.search_node_args import run_search_node_args
 
 # Target Functions
 from evaluations.target_functions.search_trajectory import run_search_node
+from evaluations.target_functions.vision_extraction import run_vision_extraction
 
 
 # Evaluates Node 1 — intent classification: does the agent route each prompt to the correct branch (search_node vs response_node)?
@@ -189,6 +199,30 @@ async def run_combined_product_detection_evaluation():
     )
 
 
+# Evaluates Product Detection on Custom Product Dataset (User Queries + 10 Additional Examples)
+async def run_custom_product_evaluation():
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_product_detection,
+        data=custom_product_dataset_name,
+        evaluators=[product_detection_evaluator],
+        experiment_prefix="experiment-halal-one-custom-product-eval 1.0",
+        max_concurrency=3,
+    )
+
+
+# Evaluates Vision Multimodal Extraction on 15 Product Images (Base64 / Image URLs)
+async def run_vision_extraction_evaluation():
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_vision_extraction,
+        data=vision_product_dataset_name,
+        evaluators=[vision_extraction_evaluator],
+        experiment_prefix="experiment-halal-one-vision-product-extraction 1.0",
+        max_concurrency=2,
+    )
+
+
 # Uncomment the evaluation you want to run:
 # asyncio.run(run_classification_evaluation())
 # asyncio.run(run_trajectory_evaluation())
@@ -197,4 +231,6 @@ async def run_combined_product_detection_evaluation():
 # asyncio.run(run_judge_node_evaluation())
 # asyncio.run(run_company_product_detection_evaluation())
 # asyncio.run(run_product_only_detection_evaluation())
-asyncio.run(run_combined_product_detection_evaluation())
+# asyncio.run(run_combined_product_detection_evaluation())
+# asyncio.run(run_custom_product_evaluation())
+asyncio.run(run_vision_extraction_evaluation())
