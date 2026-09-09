@@ -1,0 +1,239 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_LOKI",
+      "label": "Loki",
+      "description": "The Loki datasource holding halalify-backend logs",
+      "type": "datasource",
+      "pluginId": "loki",
+      "pluginName": "Loki"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "bargauge", "name": "Bar gauge", "version": "" },
+    { "type": "panel", "id": "text", "name": "Text", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Who is using HalalOne and how much. Sections 5 and 6 of the Dashboard Metrics Reference.",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["halalone", "logs", "users"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "title": "HalalOne - Users and Sessions",
+  "uid": "halalone-users-sessions",
+  "version": 2,
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "transparent": true,
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Users and Sessions\nHow many people are using the app, and how heavily.\n\nA **session** is one conversation. A **user** can have many sessions. `Active` means seen in the last 5 minutes, so it reads 0 when nobody is using the app right now - that is normal, not a fault.\n\nFor real daily/monthly user counts, query Supabase instead - logs are a poor database for long-range counting."
+      }
+    },
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Users active now",
+      "description": "Distinct users seen in the last 5 minutes. Reads 0 when nobody is currently using the app.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 3 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" }, "noValue": "0" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "expr": "count(sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [5m])))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Conversations active now",
+      "description": "Distinct sessions seen in the last 5 minutes.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 3 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "purple" }, "noValue": "0" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "expr": "count(sum by (session_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", session_id=\"session_id\" | event=`process.end` | session_id != `` [5m])))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Users in this window",
+      "description": "Distinct users over the whole selected time range. Set the range to 24h to read this as 'daily active users'.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 3 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" }, "noValue": "0" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "expr": "count(sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [$__range])))"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Messages per conversation",
+      "description": "Average number of chat prompts sent in each conversation. Higher means people are having longer exchanges with the agent.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 3 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "none", "textMode": "auto", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "green" }, "noValue": "0" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=`ws.prompt` [$__range])) / count(sum by (session_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\", session_id=\"session_id\" | event=`process.end` | action=`ws.prompt` | session_id != `` [$__range])))"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "New conversations started",
+      "description": "When people began new chats. Height = how many started in that period.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "decimals": 0,
+          "color": { "mode": "fixed", "fixedColor": "green" },
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 80, "showPoints": "never", "barWidthFactor": 0.8, "barAlignment": 0 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "hidden", "placement": "bottom", "showLegend": false }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "range",
+          "legendFormat": "new conversations",
+          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`session_created` [$__interval]))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Busiest users",
+      "description": "The 10 users who made the most requests in this window. One user far ahead of the rest is worth a look.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal", "displayMode": "basic", "valueMode": "text",
+        "showUnfilled": true, "minVizWidth": 8, "minVizHeight": 14, "namePlacement": "left", "sizing": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "min": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "legendFormat": "{{user_id}}",
+          "expr": "topk(10, sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [$__range])))"
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Conversation management",
+      "description": "How often people delete conversations, and how often the app compacts long ones. 'folded' means a conversation was summarised successfully.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal", "displayMode": "basic", "valueMode": "text",
+        "showUnfilled": true, "minVizWidth": 8, "minVizHeight": 16, "namePlacement": "left", "sizing": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "min": 0, "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "legendFormat": "{{event}}",
+          "expr": "sum by (event) (count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`compaction\\..*` [$__range]))"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "instant",
+          "legendFormat": "conversations deleted",
+          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=`ws.delete_session` [$__range]))"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Rejected sign-in attempts",
+      "description": "Someone tried to connect with an invalid or expired token. A few is normal (expired sessions). A sustained spike is worth investigating.",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "decimals": 0,
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 80, "showPoints": "never", "barWidthFactor": 0.8, "barAlignment": 0 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "hidden", "placement": "bottom", "showLegend": false }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "queryType": "range",
+          "legendFormat": "rejected sign-ins",
+          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`ws\\.auth\\.failed|http\\.extract_image\\.auth_failed` [$__interval]))"
+        }
+      ]
+    }
+  ]
+}
