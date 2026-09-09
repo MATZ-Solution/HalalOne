@@ -49,6 +49,9 @@ COMPACTION_RUNNING_MSG = "History is being compacted, please wait…"
 # decision or actively compacting.
 COMPACTION_BUSY_RESULT = {"type": "results", "response": "Please resolve the compaction prompt before sending another message.", "documents": []}
 
+
+
+
 # How long a graceful shutdown waits for in-flight pipelines to land their answers.
 # Bounds how long a deploy can be held up; anything still running past it is
 # abandoned. Only ever helps on a graceful stop (SIGTERM / Ctrl+C — i.e. deploys,

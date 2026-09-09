@@ -1,5 +1,2 @@
 typesense-data/
 .claude/
-
-# Local log files written when LOG_FILE_PATH is set (tailed by Grafana Alloy)
-backend/logs/

@@ -1,7 +1,7 @@
-import asyncio
 from config.langsmith_client import get_langsmith_client
 
 examples = [
+    # 1) Brand narrows among near-duplicates: only the Shan one matches.
     {
         "inputs": {
             "keyword_args": {"norm_name": "biryani masala", "companies": ["Shan"]},
@@ -13,6 +13,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000001"]},
     },
+    # 2) No brand given → every genuine olive-oil variant matches; sunflower oil doesn't.
     {
         "inputs": {
             "keyword_args": {"norm_name": "olive oil"},
@@ -24,6 +25,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000010", "halal_000011"]},
     },
+    # 3) Genuinely different products → nothing matches (empty expected set).
     {
         "inputs": {
             "keyword_args": {"norm_name": "creme brulee"},
@@ -34,6 +36,8 @@ examples = [
         },
         "outputs": {"canonical_ids": []},
     },
+    # 4) Cross-field: the brand the user put in `companies` also appears inside the
+    #    candidate's norm_name — still a match (judge fields holistically).
     {
         "inputs": {
             "keyword_args": {"norm_name": "dried fruits white mullberries", "companies": ["basse"]},
@@ -44,6 +48,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000030"]},
     },
+    # 5) Typo + casing/brand-variant tolerance.
     {
         "inputs": {
             "keyword_args": {"norm_name": "chocholate chip cookies", "companies": ["mcvities"]},
@@ -54,6 +59,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000040"]},
     },
+    # 6) Same product name, different brands → only the requested brand matches.
     {
         "inputs": {
             "keyword_args": {"norm_name": "coconut mixed nuts", "companies": ["heritage snacks"]},
@@ -68,6 +74,8 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_031898"]},
     },
+    # 7) Brand-only criteria (no norm_name): judge on `companies` alone (rule 4) —
+    #    every product of that brand matches, regardless of what it is.
     {
         "inputs": {
             "keyword_args": {"companies": ["Nestle"]},
@@ -80,6 +88,8 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000050", "halal_000051", "halal_000053"]},
     },
+    # 8) Product-form / blend distinction (rule 2): a blended orange+mango juice is a
+    #    genuinely different product from plain orange juice.
     {
         "inputs": {
             "keyword_args": {"norm_name": "orange juice"},
@@ -91,6 +101,8 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000060", "halal_000061"]},
     },
+    # 9) Casing / diacritics / legal-suffix equivalence (rule 1): "cafe latte" == "Café
+    #    Latté", "lavazza" == "Lavazza S.p.A."; the cappuccino is a different product.
     {
         "inputs": {
             "keyword_args": {"norm_name": "cafe latte", "companies": ["lavazza"]},
@@ -101,6 +113,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000070"]},
     },
+    # 10) Exact norm_name but wrong brand → fail (rule 5: ALL provided fields must pass).
     {
         "inputs": {
             "keyword_args": {"norm_name": "greek yogurt", "companies": ["Chobani"]},
@@ -111,6 +124,8 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000080"]},
     },
+    # 11) Cross-field (rule 3): the requested brand appears inside the candidate's
+    #     norm_name too — still a match. The other spread is a different brand.
     {
         "inputs": {
             "keyword_args": {"norm_name": "nutella", "companies": ["ferrero"]},
@@ -121,6 +136,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000090"]},
     },
+    # 12) Brand typo tolerance (rule 1): "kelogs" == "Kellogg's".
     {
         "inputs": {
             "keyword_args": {"norm_name": "corn flakes", "companies": ["kelogs"]},
@@ -131,6 +147,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000100"]},
     },
+    # 13) Edge: empty candidate pool → nothing to match.
     {
         "inputs": {
             "keyword_args": {"norm_name": "sparkling water", "companies": ["Perrier"]},
@@ -138,6 +155,7 @@ examples = [
         },
         "outputs": {"canonical_ids": []},
     },
+    # 14) No brand filter → every genuine basmati-rice variant matches.
     {
         "inputs": {
             "keyword_args": {"norm_name": "basmati rice"},
@@ -149,6 +167,7 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000110", "halal_000111", "halal_000112"]},
     },
+    # 15) Product-form distinction (rule 2): ketchup, paste and puree are different products.
     {
         "inputs": {
             "keyword_args": {"norm_name": "tomato ketchup"},
@@ -160,6 +179,9 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000120"]},
     },
+    # 16) Sub-brand cross-field (rule 3): user's brand "Maggi" isn't in the candidate's
+    #     `companies` (Nestlé) but IS in its norm_name → match. The generic one has no
+    #     Maggi anywhere → no match.
     {
         "inputs": {
             "keyword_args": {"norm_name": "noodles", "companies": ["Maggi"]},
@@ -170,6 +192,9 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000130"]},
     },
+    # 17) Edge — multiple companies (OR semantics): user lists alternative brands, so a
+    #     candidate matching EITHER brand passes. (Flip expected to [] if your intended
+    #     semantics is AND.)
     {
         "inputs": {
             "keyword_args": {"norm_name": "chaat masala", "companies": ["Shan", "National"]},
@@ -181,6 +206,8 @@ examples = [
         },
         "outputs": {"canonical_ids": []},
     },
+    # 18) Distractor-heavy: dark vs milk is a different product (rule 2), and a matching
+    #     norm_name under the wrong brand still fails (rule 5).
     {
         "inputs": {
             "keyword_args": {"norm_name": "dark chocolate", "companies": ["Lindt"]},
@@ -193,6 +220,8 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000150", "halal_000151"]},
     },
+    # 19) Edge — candidate missing a field the user provided: with no `companies`, the
+    #     brand requirement can't be satisfied → no match (rule 5, don't infer rule 4).
     {
         "inputs": {
             "keyword_args": {"norm_name": "green tea", "companies": ["Lipton"]},
@@ -203,6 +232,8 @@ examples = [
         },
         "outputs": {"canonical_ids": ["halal_000160"]},
     },
+    # 20) Synonym / common-sense equivalence (rule 1): chickpeas == garbanzo beans;
+    #     kidney beans are a different legume.
     {
         "inputs": {
             "keyword_args": {"norm_name": "chickpeas"},
@@ -352,4 +383,5 @@ async def generate_variant_dataset():
     print(f"Successfully generated dataset:{variant_dataset_name}")
 
 
+import asyncio
 asyncio.run(generate_variant_dataset())
