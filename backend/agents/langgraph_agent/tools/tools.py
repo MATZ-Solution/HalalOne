@@ -8,7 +8,13 @@ from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
 from collection.search.search_collection import search_collection
 from ..utils.utils import KEYWORD_FIELD_ORDER, COLLECTION, build_filter_string
-from ..models.models import KeywordFilterInput, KeywordArgs, FilterArgs, SemanticFilterInput, WebSearchInput
+from ..models.models import (
+    KeywordFilterInput,
+    KeywordArgs,
+    FilterArgs,
+    SemanticFilterInput,
+    WebSearchInput,
+)
 
 NARROW_KEYWORD_LIMIT = 250
 FINAL_KEYWORD_LIMIT = 10
@@ -17,12 +23,13 @@ K = 8
 FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
 
-@tool(args_schema=KeywordFilterInput)
-def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
+@tool(args_schema=KeywordFilterInput)
+def KeywordFilterSearch(
+    keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by keyword. USE THIS when the query names a specific
-    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body,
-    location, marketplace, barcode, etc.).
+    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body, location, marketplace, barcode, etc.).
 
     Args:
       keyword_args: text-match fields. Keys: norm_name (str), companies (list[str]),
@@ -32,8 +39,7 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
         cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace). Pass null if none.
     """
     active_filters = {
-        k: v for k, v in (dict(filter_args) if filter_args else {}).items()
-        if v
+        k: v for k, v in (dict(filter_args) if filter_args else {}).items() if v
     }
     # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
     # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
@@ -76,15 +82,19 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
             return []
         # Narrow the next field's search to what this one matched. A document missing
         # canonical_id is skipped instead of raising KeyError.
-        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+        matched_ids = [
+            doc["canonical_id"] for doc in documents if doc.get("canonical_id")
+        ]
         if matched_ids:
             active_filters["canonical_id"] = matched_ids
 
     return documents
 
-@tool(args_schema = SemanticFilterInput)
-def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
+@tool(args_schema=SemanticFilterInput)
+def SemanticFilterSearch(
+    semantic_query: str, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by semantic/vector similarity. USE THIS only when the
     query is conceptual or descriptive with NO specific product/brand named — e.g.
     "a calcium-rich snack for children", "natural red food colouring", "good for
@@ -116,8 +126,8 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
             "collection": COLLECTION,
             "q": "*",
             "vector_query": vector_query,
-            "per_page": K
-            # "exclude_fields": "embedding",
+            "per_page": K,
+            "exclude_fields": "embedding",
         }
 
         if filter_str:
@@ -126,8 +136,23 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
     except Exception as e:
-        log.error("tool.semantic_search.failed", error=str(e), error_type=type(e).__name__)
+        log.error(
+            "tool.semantic_search.failed", error=str(e), error_type=type(e).__name__
+        )
         return []
+
+
+def _grounding_for(grounding: List[Dict], index: int) -> List[Dict]:
+    """Grounding entries for products[index], with the array prefix stripped so each
+    `field` is the bare product field again (the shape the client expects). Exa keys
+    grounding by path — e.g. 'products[0].halal_status' — now that the schema returns
+    a list, so we split it back out per product."""
+    prefix = f"products[{index}]."
+    return [
+        {**g, "field": g["field"][len(prefix):]}
+        for g in grounding
+        if isinstance(g.get("field"), str) and g["field"].startswith(prefix)
+    ]
 
 
 @tool(args_schema=WebSearchInput)
@@ -147,7 +172,7 @@ def WebSearch(query: str) -> List[Dict]:
     except Exception:
         writer = None
 
-    product = None
+    products: List[Dict] = []
     grounding: List[Dict] = []
     try:
         for event in stream_web_search(query):
@@ -155,30 +180,37 @@ def WebSearch(query: str) -> List[Dict]:
             if etype == "results" and writer:
                 # Emit each source as a live loading message.
                 for r in event.get("results", []):
-                    writer({
-                        "type": "web_source",
-                        "url": r.get("url"),
-                        "title": r.get("title"),
-                        "favicon": r.get("favicon"),
-                        "highlights": r.get("highlights") or [],
-                    })
+                    writer(
+                        {
+                            "type": "web_source",
+                            "url": r.get("url"),
+                            "title": r.get("title"),
+                            "favicon": r.get("favicon"),
+                            "highlights": r.get("highlights") or [],
+                        }
+                    )
             elif etype == "done":
                 output = event.get("output") or {}
-                product = output.get("content")
+                products = (output.get("content") or {}).get("products") or []
                 grounding = output.get("grounding") or []
     except Exception as e:
         log.error("tool.web_search.failed", error=str(e), error_type=type(e).__name__)
         return []
 
-    if not product or not product.get("norm_name"):
-        return []
-    # Give the web product a stable id (like DB products) so response_node can
-    # select it by id. The `halal_` prefix marks it as web-sourced.
-    product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
-    product["verified"] = False
-    product["grounding"] = grounding
-    return [product]
+    # Keep only well-formed products; stamp each like a DB product so response_node
+    # can select it by id. The `halal_` prefix + verified=False mark it web-sourced.
+    # Enumerate over the raw list so `i` stays aligned with Exa's products[i] paths
+    # even when a malformed product is skipped.
+    results: List[Dict] = []
+    for i, product in enumerate(products):
+        if not product.get("norm_name"):
+            continue
+        product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
+        product["verified"] = False
+        product["grounding"] = _grounding_for(grounding, i)
+        results.append(product)
+    return results
 
 
-results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
-print("Web search results", results)
+# results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
+# print("Web search results", results)
