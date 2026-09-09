@@ -69,6 +69,9 @@ function getBackendHttpUrl(): string {
 
 // If extraction hasn't returned within this window, abort the request and tell
 // the user instead of leaving the dialog spinning indefinitely.
+// Must stay ABOVE the backend's hard deadline (VLM_EXTRACT_DEADLINE, 25s) plus a few
+// seconds of auth/upload/network overhead — so the server returns a result or a clean
+// error first, and this only fires if the request is genuinely stuck. Keep them in sync.
 const EXTRACTION_TIMEOUT_MS = 30_000
 
 function buildInitialFields(extracted: Record<string, unknown>): Field[] {
