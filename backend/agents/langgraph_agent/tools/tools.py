@@ -30,56 +30,64 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
       filter_args: exact-match filters (category_l1/l2, halal_status; sold_in,
         cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace). Pass null if none.
     """
-    active_filters = {
-        k: v for k, v in (dict(filter_args) if filter_args else {}).items()
-        if v
-    }
-    # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
-    # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
-    # pydantic v2 model too — so the field lookups below are uniform.
-    keywords = dict(keyword_args) if keyword_args else {}
-    # Iterate in KEYWORD_FIELD_ORDER (norm_name first) so the most selective field
-    # narrows first — an early field's capped result set can't truncate the target
-    # product out of the later fields' searches.
-    valid = [(k, keywords[k]) for k in KEYWORD_FIELD_ORDER if keywords.get(k)]
+    # search_collection is a network round-trip to Typesense; a DB blip should degrade
+    # to "no products found" like the other tools, not escape and fail the whole node.
+    try:
+        active_filters = {
+            k: v for k, v in (dict(filter_args) if filter_args else {}).items()
+            if v
+        }
+        # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
+        # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
+        # pydantic v2 model too — so the field lookups below are uniform.
+        keywords = dict(keyword_args) if keyword_args else {}
+        # Iterate in KEYWORD_FIELD_ORDER (norm_name first) so the most selective field
+        # narrows first — an early field's capped result set can't truncate the target
+        # product out of the later fields' searches.
+        valid = [(k, keywords[k]) for k in KEYWORD_FIELD_ORDER if keywords.get(k)]
 
-    if not valid and active_filters:
-        return search_collection(
-            query="*",
-            query_by="norm_name",
-            collection_name=COLLECTION,
-            filter_parameters=active_filters,
-        )
-    if not valid and not active_filters:
-        return []
-
-    documents = []
-    for i, (k, v) in enumerate(valid):
-        # Intermediate passes only collect ids to narrow the next field, so pull a
-        # wide set (250); the final pass is the returned result, capped small (4).
-        limit = FINAL_KEYWORD_LIMIT if i == len(valid) - 1 else NARROW_KEYWORD_LIMIT
-        # KeywordArgs validates norm_name as str and companies as list[str], but coerce
-        # defensively anyway — a stray non-string would make " ".join raise TypeError
-        # and take the whole node down.
-        query = " ".join(str(i) for i in v) if isinstance(v, list) else str(v)
-        documents = search_collection(
-            query=query,
-            query_by=k,
-            collection_name=COLLECTION,
-            filter_parameters=active_filters,
-            limit=limit
-        )
-        # Fields are ANDed: nothing matched here means nothing can match overall, so
-        # stop rather than querying the remaining fields.
-        if not documents:
+        if not valid and active_filters:
+            return search_collection(
+                query="*",
+                query_by="norm_name",
+                collection_name=COLLECTION,
+                filter_parameters=active_filters,
+            )
+        if not valid and not active_filters:
             return []
-        # Narrow the next field's search to what this one matched. A document missing
-        # canonical_id is skipped instead of raising KeyError.
-        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
-        if matched_ids:
-            active_filters["canonical_id"] = matched_ids
 
-    return documents
+        documents = []
+        for i, (k, v) in enumerate(valid):
+            # Intermediate passes only collect ids to narrow the next field, so pull a
+            # wide set (250); the final pass is the returned result, capped small (4).
+            limit = FINAL_KEYWORD_LIMIT if i == len(valid) - 1 else NARROW_KEYWORD_LIMIT
+            # KeywordArgs validates norm_name as str and companies as list[str], but coerce
+            # defensively anyway — a stray non-string would make " ".join raise TypeError
+            # and take the whole node down.
+            query = " ".join(str(i) for i in v) if isinstance(v, list) else str(v)
+            documents = search_collection(
+                query=query,
+                query_by=k,
+                collection_name=COLLECTION,
+                filter_parameters=active_filters,
+                limit=limit
+            )
+            # Fields are ANDed: nothing matched here means nothing can match overall, so
+            # stop rather than querying the remaining fields.
+            if not documents:
+                return []
+            # Narrow the next field's search to what this one matched. A document missing
+            # canonical_id is skipped instead of raising KeyError.
+            matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+            if matched_ids:
+                active_filters["canonical_id"] = matched_ids
+
+        return documents
+    except Exception as e:
+        log.error(
+            "tool.keyword_search.failed", error=str(e), error_type=type(e).__name__
+        )
+        return []
 
 @tool(args_schema = SemanticFilterInput)
 def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
