@@ -32,6 +32,7 @@ Two findings are pinned:
     characterisation of the current, inconsistent split.
 """
 import re
+
 import pytest
 
 from agents.langgraph_agent.models.models import SelectedProducts, classify_intent_schema
@@ -44,6 +45,7 @@ from agents.langgraph_agent.prompts.prompt import (
 from agents.langgraph_agent.utils.utils import FILTER_FIELDS, KEYWORD_FIELDS
 
 pytestmark = pytest.mark.unit
+
 
 def _table_fields(prompt, section_header):
     """Field names from a markdown pipe table under `section_header`."""

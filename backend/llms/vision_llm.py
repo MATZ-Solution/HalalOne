@@ -1,13 +1,15 @@
 import os
 import re
 import json
-from log.logger import log
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-from typing import List, Dict, Any, Optional
+import base64
+import asyncio
 from pydantic import BaseModel, ValidationError
-from langchain.messages import HumanMessage, SystemMessage
+from dotenv import load_dotenv
+from typing import List, Dict, Any, Optional
+from langchain_groq import ChatGroq
 from langchain_fireworks import ChatFireworks
+from langchain.messages import HumanMessage, SystemMessage
+from log.logger import log
 
 load_dotenv()
 
@@ -15,23 +17,13 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_AI_API_KEY")
 
 vision_llm = ChatGroq(
-    model="qwen/qwen3.6-27b",
-    api_key=GROQ_API_KEY,
-    temperature=0,
-    max_tokens=4096,
-    reasoning_effort="none",
-    model_kwargs={"response_format": {"type": "json_object"}},
+    model = "qwen/qwen3.6-27b",
+    api_key = GROQ_API_KEY,
+    temperature = 0,               
+    max_tokens=4096,               
+    reasoning_effort="none",       
+    model_kwargs={"response_format": {"type": "json_object"}}
 )
-
-vision_llm = ChatFireworks(
-    model="accounts/fireworks/models/deepseek-v4-flash-vision-exp",
-    api_key=FIREWORKS_API_KEY,
-    temperature=0,
-    max_tokens=4096,
-    # reasoning_effort="none",
-    # model_kwargs={"response_format": {"type": "json_object"}},
-)
-
 
 class ProductInfo(BaseModel):
     norm_name: str
@@ -47,7 +39,6 @@ class ProductInfo(BaseModel):
     health_info: List[str]
     fda_numbers: List[str]
     barcodes: List[str]
-
 
 SYSTEM_INSTRUCTIONS = """
 You are a specialist assistant for extracting key information from a product image.
@@ -118,7 +109,6 @@ Return only JSON with the following keys:
 
 # structured_llm = vision_llm.with_structured_output(ProductInfo, method="json_schema")
 
-
 def _parse_json(text: str) -> Optional[dict]:
     """Direct parse first; fall back to extracting the first {...} block."""
     try:
@@ -137,19 +127,19 @@ def _parse_json(text: str) -> Optional[dict]:
 async def invoke_llm_with_image(image_url: str) -> Dict[str, Any]:
     if not image_url:
         return {"error": "No valid image found"}
-    messages = [
-        SystemMessage(SYSTEM_INSTRUCTIONS),
-        HumanMessage(content=[{"type": "image_url", "image_url": {"url": image_url}}]),
-    ]
-
+    messages = [SystemMessage(SYSTEM_INSTRUCTIONS), HumanMessage(content=[{
+        'type': 'image_url',
+        'image_url': {
+            'url': image_url
+        }
+    }])]
+    
     try:
         # Native async — cleaner than asyncio.to_thread(vision_llm.invoke, ...)
         response = await vision_llm.ainvoke(messages)
         print(response)
     except Exception as exc:
-        log.exception(
-            "vision_llm.invoke.failed", error=str(exc), error_type=type(exc).__name__
-        )
+        log.exception("vision_llm.invoke.failed", error=str(exc), error_type=type(exc).__name__)
         return {"error": f"LLM request failed: {exc}"}
 
     content = (response.content or "").strip()
@@ -164,9 +154,5 @@ async def invoke_llm_with_image(image_url: str) -> Dict[str, Any]:
     try:
         return ProductInfo(**data).model_dump()
     except ValidationError as exc:
-        log.warning(
-            "vision_llm.validation.failed",
-            error=str(exc),
-            error_type=type(exc).__name__,
-        )
+        log.warning("vision_llm.validation.failed", error=str(exc), error_type=type(exc).__name__)
         return data  # JSON was valid, just off-schema — return raw rather than drop it

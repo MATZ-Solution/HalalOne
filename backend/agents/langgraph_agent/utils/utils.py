@@ -1,6 +1,6 @@
-from rapidfuzz import fuzz
 from typing import Optional
 from ..models.models import FilterArgs
+from rapidfuzz import fuzz
 
 COLLECTION = "halal_products"
 
@@ -12,11 +12,6 @@ FILTER_FIELDS = {
     "category_l1", "category_l2", "halal_status", "sold_in",
     "cert_bodies", "cert_numbers", "fda_numbers", "barcodes", "marketplace",
 }
-
-# On a WEB fallback the DB never pre-filtered the results, so only the hard
-# identifiers are re-checked (hyphen/case-insensitively) — and only when the web
-# result actually carries that field; a missing identifier is skipped, not rejected.
-WEB_FILTER_FIELDS = {"barcodes", "fda_numbers", "cert_numbers"}
 
 # Tool-call budgets: keyword-first can climb the full ladder
 # (keyword -> web -> semantic x2); a semantic-first query only runs semantic.
@@ -116,8 +111,7 @@ CANONICAL_LISTS = {
     "Mushbooh",
     "Haram",
     "Haraam",
-    "Halal",
-    "Unknown"
+    "Halal"
   ],
     "cert_bodies": [
     "HFCE",
@@ -248,58 +242,33 @@ def validate_ids(returned_ids: list[str], candidate_ids: list[str]) -> tuple[lis
     return valid, hallucinated
 
 
-def _norm_value(v) -> str:
-    """Loose-equality key: lowercase with hyphens and surrounding space removed,
-    so '01-2345' matches '012345' and 'Non-Food' matches 'non food'."""
-    return str(v).replace("-", "").strip().lower()
-
-
-def _matches_filters(product: dict, active: dict, norm=None, skip_missing=False) -> bool:
-    """True if the product satisfies every active filter (case-insensitive).
-    `norm` (if given) is applied to both sides for looser equality — e.g.
-    hyphen-insensitive barcode/cert-number matching on web results.
-    `skip_missing` skips (rather than rejects) a filter the product has no value
-    for — used for unverified web results that often omit identifiers."""
-    norm = norm or (lambda v: str(v).lower())
+def _matches_filters(product: dict, active: dict) -> bool:
+    """True if the product satisfies every active filter (case-insensitive)."""
     for key, want in active.items():
         have = product.get(key)
-        if not have:
-            if skip_missing:
-                continue
+        if have is None:
             return False
         if isinstance(want, list):
-            have_set = {norm(x) for x in (have if isinstance(have, list) else [have])}
-            if not all(norm(w) in have_set for w in want):
+            have_set = {str(x).lower() for x in (have if isinstance(have, list) else [have])}
+            if not all(str(w).lower() in have_set for w in want):
                 return False
         elif isinstance(have, list):
-            if norm(want) not in {norm(x) for x in have}:
+            if str(want).lower() not in {str(x).lower() for x in have}:
                 return False
-        elif norm(have) != norm(want):
+        elif str(have).lower() != str(want).lower():
             return False
     return True
 
 
-def apply_filter_check(
-    products: list[dict],
-    filters: Optional[dict],
-    only_fields: Optional[set] = None,
-    loose: bool = False,
-    skip_missing: bool = False,
-) -> tuple[list[dict], list[dict]]:
+def apply_filter_check(products: list[dict], filters: Optional[dict]) -> tuple[list[dict], list[dict]]:
     """Split products into (passers, rejected) by the exact filters the user gave.
-    Mostly a safety net for web results (DB results are already filtered).
-    only_fields restricts the check to those filter keys; loose uses
-    hyphen/case-insensitive equality; skip_missing passes a product that has no
-    value for a filtered field instead of rejecting it. Pure."""
+    Mostly a safety net for web results (DB results are already filtered). Pure."""
     active = {k: v for k, v in (filters or {}).items() if v}
-    if only_fields is not None:
-        active = {k: v for k, v in active.items() if k in only_fields}
     if not active:
         return list(products), []
-    norm = _norm_value if loose else None
     passers, rejected = [], []
     for p in products:
-        (passers if _matches_filters(p, active, norm, skip_missing) else rejected).append(p)
+        (passers if _matches_filters(p, active) else rejected).append(p)
     return passers, rejected
 
 
