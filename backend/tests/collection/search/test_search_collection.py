@@ -6,7 +6,6 @@ intercept the database call and verify that the `search_parameters` payload
 is built perfectly (especially the complex `filter_by` string).
 """
 import pytest
-
 from collection.search.search_collection import search_collection
 
 pytestmark = pytest.mark.unit

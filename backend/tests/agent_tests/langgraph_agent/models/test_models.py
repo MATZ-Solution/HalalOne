@@ -20,8 +20,8 @@ no mocks. Two findings are pinned with `xfail(strict=True)`:
 constants it keys against, so drift between node and the model fails here.
 """
 import operator
-from typing import Annotated, get_args, get_origin, get_type_hints
-from typing import Literal
+from typing import Annotated, Literal, get_args, get_origin, get_type_hints
+
 import pytest
 from agents.langgraph_agent.models.models import (
     FilterArgs,

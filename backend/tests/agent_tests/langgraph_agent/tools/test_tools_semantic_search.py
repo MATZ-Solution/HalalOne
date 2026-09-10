@@ -24,7 +24,6 @@ tool, and asserting it here would duplicate Layer 1's xfail.
 from types import SimpleNamespace
 
 import pytest
-
 from agents.langgraph_agent.tools.tools import SemanticFilterSearch
 
 pytestmark = pytest.mark.unit

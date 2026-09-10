@@ -28,14 +28,24 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from agents.langgraph_agent.models.models import (
+    OutputSchema,
+    SelectedProducts,
+    classify_intent_schema,
+)
+from agents.langgraph_agent.nodes import node
+from agents.langgraph_agent.prompts.prompt import (
+    CLASSIFICATION_PROMPT,
+    SEARCH_PROMPT_BASE,
+)
+from agents.langgraph_agent.tools.tools import (
+    KeywordFilterSearch,
+    SemanticFilterSearch,
+    WebSearch,
+)
 from langchain.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.errors import NodeError
 from langgraph.types import Command
-
-import agents.langgraph_agent.nodes.node as node
-from agents.langgraph_agent.models.models import OutputSchema, SelectedProducts, classify_intent_schema
-from agents.langgraph_agent.prompts.prompt import CLASSIFICATION_PROMPT, SEARCH_PROMPT_BASE
-from agents.langgraph_agent.tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
 
 pytestmark = pytest.mark.unit
 

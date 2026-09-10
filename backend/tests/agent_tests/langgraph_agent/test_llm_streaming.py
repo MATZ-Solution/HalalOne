@@ -32,13 +32,12 @@ import os
 from types import SimpleNamespace
 from typing import TypedDict
 
+import agents.langgraph_agent.main_langgraph_agent as main
 import pytest
+from agents.main_agent import format_results
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
-from agents.main_agent import format_results
-
-import agents.langgraph_agent.main_langgraph_agent as main
 
 # Finding #14: `main_langgraph_agent` calls `load_dotenv(override=True)` at import,
 # which overrides the conftest shim with the repo .env (APP_ENV -> development,
@@ -85,14 +84,13 @@ class TestLLMConfig:
         assert summarizer_llm.model == "openai/gpt-oss-20b"
 
     def test_all_llms_run_at_zero_temperature(self):
-        from langchain_core.language_models.chat_models import BaseChatModel
-
         from agents.langgraph_agent.LLMs.llm import (
             extracter_llm,
             final_extracter_llm,
             standard_llm,
             summarizer_llm,
         )
+        from langchain_core.language_models.chat_models import BaseChatModel
 
         for llm in (extracter_llm, final_extracter_llm, standard_llm, summarizer_llm):
             assert isinstance(llm, BaseChatModel)
@@ -623,7 +621,6 @@ def test_format_results_tolerates_products_without_companies_or_cert_bodies(
     product = {"norm_name": "X", "companies": companies, "cert_bodies": cert_bodies, "canonical_id": "1", "halal_status": "Halal", "category_l1": "", "category_l2": ""}
     format_results([product])  # must not raise
 
-
 def test_format_results_still_logs_the_fields_it_has():
-    product = SimpleNamespace(norm_name="X", companies=["Acme"], cert_bodies=["HFA"])
-    main.format_results([product])  # must not raise
+    product = {"norm_name": "X", "companies": ["Acme"], "cert_bodies": ["HFA"]}
+    format_results([product])  # must not raise

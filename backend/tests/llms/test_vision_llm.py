@@ -11,10 +11,10 @@ Tests two things:
    replaces the real Groq API call with an AsyncMock.
 """
 import json
-import pytest
 from unittest.mock import MagicMock
 
-from llms.vision_llm import _parse_json, invoke_llm_with_image, ProductInfo
+import pytest
+from llms.vision_llm import ProductInfo, _parse_json, invoke_llm_with_image
 
 pytestmark = pytest.mark.unit
 

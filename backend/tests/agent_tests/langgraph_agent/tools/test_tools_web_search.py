@@ -16,7 +16,6 @@ hand-rolled `{"type": "results"|"done"}` events. `TestExaStreamingContract` pins
 sides of that gap.
 """
 import pytest
-
 from agents.langgraph_agent.tools.tools import WebSearch
 
 pytestmark = pytest.mark.unit

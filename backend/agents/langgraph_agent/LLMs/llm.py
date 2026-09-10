@@ -4,6 +4,8 @@ import warnings
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 
+from config.timeouts import LLM_TIMEOUT_S
+
 from ..models.models import JudgeVerdict
 
 # from langchain_aws import ChatBedrockConverse
@@ -20,7 +22,6 @@ warnings.filterwarnings(
 )
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
-print("GROQ_API_KEY:", GROQ_API_KEY)
 CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY')
 # AWS_BEARER_TOKEN_BEDROCK = os.getenv('AWS_BEARER_TOKEN_BEDROCK')
 
@@ -46,15 +47,17 @@ if not CEREBRAS_API_KEY:
 
 extracter_llm = ChatGroq(
     api_key = GROQ_API_KEY,
-    model = "openai/gpt-oss-20b",    
+    model = "openai/gpt-oss-20b",
     temperature = 0,
-    max_tokens = 300
+    max_tokens = 300,
+    timeout = LLM_TIMEOUT_S,
 )
 
 final_extracter_llm = ChatGroq(
     api_key = GROQ_API_KEY,
     model = "openai/gpt-oss-120b",
     temperature = 0,
+    timeout = LLM_TIMEOUT_S,
 )
 
 
@@ -62,13 +65,15 @@ standard_llm = ChatGroq(
     api_key = GROQ_API_KEY,
     model = "openai/gpt-oss-120b",
     temperature = 0,
+    timeout = LLM_TIMEOUT_S,
 )
 
 # use a smaller llm for summarizing conversation histories
 summarizer_llm = ChatGroq(
     api_key = GROQ_API_KEY,
     model = "openai/gpt-oss-20b",
-    temperature = 0
+    temperature = 0,
+    timeout = LLM_TIMEOUT_S,
 )
 
 # LLM-as-judge for exact-match checking (same model/style as the trajectory
@@ -77,6 +82,7 @@ judge_llm = ChatGroq(
     api_key = GROQ_API_KEY,
     model = "openai/gpt-oss-20b",
     temperature = 0,
+    timeout = LLM_TIMEOUT_S,
 ).with_structured_output(JudgeVerdict, method="json_schema")
 
 # final_extracter_llm = ChatCerebras(

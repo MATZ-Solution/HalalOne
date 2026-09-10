@@ -1,8 +1,10 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from log.logger import log
 from langchain.tools import tool
 from ..utils.web_search import stream_web_search
 from typing import Dict, Optional, List, Any
+from config.timeouts import EMBEDDING_TIMEOUT_S
 from config.typesense_client import TS_CLIENT
 from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
@@ -108,7 +110,15 @@ def SemanticFilterSearch(
     # guard: a provider outage should degrade to "no products found" like every other
     # failure in this tool, not escape and fail the whole node.
     try:
-        embedding = embedding_model.embed_query(semantic_query)
+        # FireworksEmbeddings has no timeout kwarg of its own (see
+        # embeddings/embeddings.py), and this is a sync tool invoked from a
+        # worker thread with no running event loop, so asyncio.wait_for isn't
+        # usable here — bound the call with a thread-pool future instead. A
+        # TimeoutError falls through to the except below like any other failure.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            embedding = pool.submit(embedding_model.embed_query, semantic_query).result(
+                timeout=EMBEDDING_TIMEOUT_S
+            )
         # have to see whether this method of stringifying vector embeddings is correct or not
         embedding_str = ",".join(map(str, embedding))
 

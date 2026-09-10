@@ -1,23 +1,35 @@
 import json
-import groq
 from typing import Literal
-from log.logger import log
-from pydantic import ValidationError
+
+import groq
+from langchain.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.exceptions import OutputParserException
+from langgraph.config import get_stream_writer
+from langgraph.errors import NodeError
 from langgraph.graph import END
 from langgraph.types import Command
-from langgraph.errors import NodeError
-from langgraph.config import get_stream_writer
-from langchain_core.exceptions import OutputParserException
-from langchain.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
-from ..models.models import SearchAgentState, OutputSchema, JudgeVerdict
-from ..LLMs.llm import standard_llm, judge_llm
+from log.logger import log
+from pydantic import ValidationError
+
+from ..LLMs.llm import judge_llm, standard_llm
+from ..models.models import JudgeVerdict, OutputSchema, SearchAgentState
 from ..prompts.prompt import (
-    build_search_prompt, JUDGE_PROMPT,
-    NO_EXACT_SIMILAR_MSG, NO_RESULTS_MSG, SEMANTIC_RESULTS_MSG,
+    JUDGE_PROMPT,
+    NO_EXACT_SIMILAR_MSG,
+    NO_RESULTS_MSG,
+    SEMANTIC_RESULTS_MSG,
+    build_search_prompt,
 )
 from ..tools.tools import KeywordFilterSearch, SemanticFilterSearch, WebSearch
-from ..utils.utils import KEYWORD_FIELDS, select_tools, should_loop, validate_ids, apply_filter_check, dedup_by_id, _compact_for_judge
-
+from ..utils.utils import (
+    KEYWORD_FIELDS,
+    _compact_for_judge,
+    apply_filter_check,
+    dedup_by_id,
+    select_tools,
+    should_loop,
+    validate_ids,
+)
 
 TOOLS_BY_NAME = {t.name: t for t in [KeywordFilterSearch, SemanticFilterSearch, WebSearch]}
 
@@ -109,7 +121,22 @@ def tool_node(state: SearchAgentState) -> dict:
             log.warning("agent.tool.unknown", tool=tool_call["name"])
             continue
 
-        observation = tool.invoke(tool_call["args"]) or []
+        # Safety net alongside each tool's own guard (KeywordFilterSearch,
+        # SemanticFilterSearch, WebSearch all already catch their own external-
+        # call failures and degrade to []) — this only protects against a
+        # future tool that lacks one, or an exception type its guard doesn't
+        # anticipate. An empty observation here is the same, already-handled
+        # shape judge_node sees whenever a tool legitimately finds nothing.
+        try:
+            observation = tool.invoke(tool_call["args"]) or []
+        except Exception as e:
+            log.error(
+                "tool_node.tool_invoke.failed",
+                tool=tool_call["name"],
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            observation = []
         ran = tool_call["name"]
         # The judge compares downstream results against the LATEST keyword criteria,
         # so capture them whenever a keyword search runs.

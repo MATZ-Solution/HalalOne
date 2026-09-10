@@ -10,7 +10,6 @@ Two real defects are pinned below with `xfail(strict=True)` — the tests descri
 which is the signal to delete the marker. See the module docstring of each for detail.
 """
 import pytest
-
 from agents.langgraph_agent.models.models import FilterArgs
 from agents.langgraph_agent.utils.utils import (
     COLLECTION,

@@ -3,6 +3,7 @@ import json
 import asyncio
 import base64
 import contextlib
+import random
 import chat_store
 from datetime import datetime, timezone
 from log.logger import logger, log
@@ -116,6 +117,19 @@ BUSY_RESULT = {"type": "results", "response": "Still processing your previous me
 
 # The only message types the socket accepts; anything else closes the connection.
 VALID_MESSAGE_TYPES = {"chat_sessions", "chat_history", "delete_session", "prompt", "image", "run_with_fields", "compact_confirm", "compact_decline"}
+
+
+def _vision_retry_backoff_delay(attempt: int) -> float:
+    """Seconds to wait before the next invoke_llm_with_image retry (exponential
+    + jitter). The retry loops below previously fired all 3 attempts back to
+    back with no delay; web_search.py's _backoff_delay is the reference pattern
+    but is typed against httpx.HTTPError specifically (Retry-After header,
+    status codes) and doesn't fit here, since invoke_llm_with_image already
+    catches its own exceptions and returns an {"error": ...} dict rather than
+    raising httpx errors up to the caller — so this is a small, generic
+    stand-in rather than a reuse of that helper."""
+    base = min(0.5 * (2 ** attempt), 8.0)
+    return base + random.uniform(0, base * 0.25)
 
 # Max inbound WS message size (bytes). Sized to allow a base64 image (~1.33x the
 # raw file) plus JSON overhead; oversized messages are dropped, not parsed.
@@ -467,7 +481,7 @@ async def extract_image_endpoint(req: ExtractImageRequest, authorization: str = 
         image_url = build_image_url(req.base64, req.mime_type)
         if not image_url:
             raise HTTPException(status_code=400, detail="Invalid image data")
-        for _ in range(3):
+        for attempt in range(3):
             try:
                 print("invoking llm with image")
                 result = await invoke_llm_with_image(image_url)
@@ -476,6 +490,8 @@ async def extract_image_endpoint(req: ExtractImageRequest, authorization: str = 
             except Exception as e:
                 print("Some error occured while invoking image llm", e)
                 log.error("http.extract_image.failed", error=str(e), error_type=type(e).__name__)
+            if attempt < 2:
+                await asyncio.sleep(_vision_retry_backoff_delay(attempt))
         raise HTTPException(status_code=422, detail="Failed to extract image information")
 
 
@@ -505,16 +521,29 @@ async def websocket_endpoint(
         await websocket.close(code=1013, reason="Server at capacity, please retry later")
         return
 
-    await websocket.accept()
-    # One connection serves all of a user's sessions; the session id travels in
-    # each message. All per-session state (conversation history, the in-flight
-    # guard) now lives in Valkey, so nothing session-scoped is kept in this
-    # process — another instance sees the same state.
+    # accept() and subscribe_user() run before the try/finally below that
+    # releases conn_id — neither is guarded on its own (subscribe_user has no
+    # try/except at all), so a failure here used to leak the connection-cap
+    # slot forever. Release it explicitly on any failure in this window.
+    try:
+        await websocket.accept()
+        # One connection serves all of a user's sessions; the session id
+        # travels in each message. All per-session state (conversation
+        # history, the in-flight guard) now lives in Valkey, so nothing
+        # session-scoped is kept in this process — another instance sees the
+        # same state.
 
-    # Every chunk this user's pipelines produce — on ANY instance — arrives here.
-    # Subscribed before the receive loop starts so a pipeline that finishes during
-    # this connection's startup still reaches us.
-    pubsub = await subscribe_user(user_id)
+        # Every chunk this user's pipelines produce — on ANY instance —
+        # arrives here. Subscribed before the receive loop starts so a
+        # pipeline that finishes during this connection's startup still
+        # reaches us.
+        pubsub = await subscribe_user(user_id)
+    except Exception as e:
+        log.error("ws.setup.failed", error=str(e), error_type=type(e).__name__)
+        await close_connection(conn_id)
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason="Connection setup failed")
+        return
 
     async def forward_published():
         """Relay this user's published pipeline chunks to their socket. Chunks are
@@ -688,6 +717,7 @@ async def websocket_endpoint(
                                 await publish_chunk(user_id, session_id, {"type": "results", "response": response["error"], "documents": []})
                                 success = False
                                 break
+                            await asyncio.sleep(_vision_retry_backoff_delay(i))
                             continue
                         else:
                             success = True
@@ -698,6 +728,7 @@ async def websocket_endpoint(
                             await publish_chunk(user_id, session_id, {"type": "results", "response": "Error occured while parsing image details, try again.", "documents": []})
                             success = False
                             break
+                        await asyncio.sleep(_vision_retry_backoff_delay(i))
                         continue
                 if not success:
                     return

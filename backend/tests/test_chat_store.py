@@ -12,24 +12,24 @@ What we verify at each layer:
 
 Organised by function, grouped into behavioural classes.
 """
-import pytest
 import asyncio
 
+import pytest
 from chat_store import (
+    CHAT_IMAGE_BUCKET,
+    IMAGE_URL_TTL,
     _with_retry,
-    session_exists,
     create_session,
-    insert_message,
-    insert_summary,
+    delete_session,
+    generate_title_description,
     get_latest_summary,
+    get_messages,
     get_messages_excluding_ids,
     get_sessions,
-    get_messages,
-    delete_session,
+    insert_message,
+    insert_summary,
+    session_exists,
     upload_chat_image,
-    generate_title_description,
-    IMAGE_URL_TTL,
-    CHAT_IMAGE_BUCKET,
 )
 
 pytestmark = pytest.mark.unit

@@ -21,15 +21,13 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
-from agents.langgraph_agent.tools.tools import WebSearch
 from agents.langgraph_agent.models.models import OutputSchema
-from agents.langgraph_agent.tools.tools import stream_web_search
+from agents.langgraph_agent.tools.tools import WebSearch, stream_web_search
+from agents.langgraph_agent.utils.utils import FILTER_FIELDS, KEYWORD_FIELDS
 from agents.langgraph_agent.utils.web_search import (
     WEB_OUTPUT_SCHEMA,
     _str_list,
 )
-from agents.langgraph_agent.utils.utils import FILTER_FIELDS, KEYWORD_FIELDS
 
 pytestmark = pytest.mark.unit
 

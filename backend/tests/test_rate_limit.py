@@ -10,23 +10,23 @@ allowing it through. This is the critical behaviour to verify.
 
 Organised by function, grouped into behavioural classes.
 """
-import pytest
 import asyncio
 
+import pytest
 from rate_limit import (
-    open_connection,
-    close_connection,
-    allow_user,
-    allow_message,
-    try_consume_user_llm,
-    try_consume_llm,
-    start_connection_sweeper,
-    stop_connection_sweeper,
     _CONN_KEY,
-    MAX_CONNECTIONS,
-    MSG_RATE_PER_SEC,
     LLM_PER_USER_PER_MIN,
     LLM_RATE_PER_MIN,
+    MAX_CONNECTIONS,
+    MSG_RATE_PER_SEC,
+    allow_message,
+    allow_user,
+    close_connection,
+    open_connection,
+    start_connection_sweeper,
+    stop_connection_sweeper,
+    try_consume_llm,
+    try_consume_user_llm,
 )
 
 pytestmark = pytest.mark.unit

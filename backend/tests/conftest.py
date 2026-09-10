@@ -28,8 +28,7 @@ os.environ.setdefault("CEREBRAS_API_KEY", "test-cerebras-key")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("LOG_LEVEL", "CRITICAL")
 
-import pytest  # noqa: E402
-
+import pytest
 
 _UNSET = object()
 
@@ -42,7 +41,7 @@ def _snapshot(value):
     """
     try:
         return copy.deepcopy(value)
-    except Exception:
+    except Exception: 
         return value
 
 

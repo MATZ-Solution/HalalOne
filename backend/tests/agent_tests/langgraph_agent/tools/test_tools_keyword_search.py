@@ -14,7 +14,6 @@ function, because that is how `tool_node` calls it — so the `KeywordFilterInpu
 coercion (a raw dict becoming a `FilterArgs`) is covered too.
 """
 import pytest
-
 from agents.langgraph_agent.tools.tools import KeywordFilterSearch
 
 pytestmark = pytest.mark.unit

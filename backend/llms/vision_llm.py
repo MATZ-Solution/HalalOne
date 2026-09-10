@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from langchain_groq import ChatGroq
 from langchain_fireworks import ChatFireworks
 from langchain.messages import HumanMessage, SystemMessage
+from config.timeouts import VISION_LLM_TIMEOUT_S
 from log.logger import log
 
 load_dotenv()
@@ -19,10 +20,11 @@ FIREWORKS_API_KEY = os.getenv("FIREWORKS_AI_API_KEY")
 vision_llm = ChatGroq(
     model = "qwen/qwen3.6-27b",
     api_key = GROQ_API_KEY,
-    temperature = 0,               
-    max_tokens=4096,               
-    reasoning_effort="none",       
-    model_kwargs={"response_format": {"type": "json_object"}}
+    temperature = 0,
+    max_tokens=4096,
+    reasoning_effort="none",
+    model_kwargs={"response_format": {"type": "json_object"}},
+    timeout=VISION_LLM_TIMEOUT_S,
 )
 
 class ProductInfo(BaseModel):

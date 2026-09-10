@@ -10,24 +10,24 @@ it would require 15+ simultaneous mocks for zero additional logic coverage.
 
 Organised by function, grouped into behavioural classes.
 """
-import json
-import pytest
 import asyncio
+import json
 
+import pytest
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from main import (
-    _history_to_messages,
-    _rows_to_history,
-    _session_exists_cached,
-    _load_context,
-    _stream_and_persist,
-    run_prompt_pipeline,
-    resume_after_confirm,
-    resume_after_decline,
+    COMPACTION_ASK_MSG,
     ERROR_RESULT,
     SUMMARY_TOKEN_THRESHOLD,
-    COMPACTION_ASK_MSG,
+    _history_to_messages,
+    _load_context,
+    _rows_to_history,
+    _session_exists_cached,
+    _stream_and_persist,
+    resume_after_confirm,
+    resume_after_decline,
+    run_prompt_pipeline,
 )
-from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from session_state import IDLE_COMPACTION
 
 pytestmark = pytest.mark.unit
@@ -46,7 +46,7 @@ def _fake_stream(*chunks):
     async def gen(*args, **kwargs):
         for c in chunks:
             yield c
-    return gen(*args if False else ())  # return the async generator object
+    return gen(*args if False else ())  # return the async generator object  # noqa: F821
 
 
 # ═══════════════════════════════════════════════════════════════════════
