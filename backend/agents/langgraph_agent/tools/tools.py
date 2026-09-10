@@ -21,7 +21,8 @@ DISTANCE_THRESHOLD = 0.3
 def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
     """Search halal products by keyword. USE THIS when the query names a specific
-    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body, location, marketplace, barcode, etc.).
+    product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body,
+    location, marketplace, barcode, etc.).
 
     Args:
       keyword_args: text-match fields. Keys: norm_name (str), companies (list[str]),
@@ -46,41 +47,41 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
         # product out of the later fields' searches.
         valid = [(k, keywords[k]) for k in KEYWORD_FIELD_ORDER if keywords.get(k)]
 
-        if not valid and active_filters:
-            return search_collection(
-                query="*",
-                query_by="norm_name",
-                collection_name=COLLECTION,
-                filter_parameters=active_filters,
-            )
-        if not valid and not active_filters:
-            return []
+    if not valid and active_filters:
+        return search_collection(
+            query="*",
+            query_by="norm_name",
+            collection_name=COLLECTION,
+            filter_parameters=active_filters,
+        )
+    if not valid and not active_filters:
+        return []
 
-        documents = []
-        for i, (k, v) in enumerate(valid):
-            # Intermediate passes only collect ids to narrow the next field, so pull a
-            # wide set (250); the final pass is the returned result, capped small (4).
-            limit = FINAL_KEYWORD_LIMIT if i == len(valid) - 1 else NARROW_KEYWORD_LIMIT
-            # KeywordArgs validates norm_name as str and companies as list[str], but coerce
-            # defensively anyway — a stray non-string would make " ".join raise TypeError
-            # and take the whole node down.
-            query = " ".join(str(i) for i in v) if isinstance(v, list) else str(v)
-            documents = search_collection(
-                query=query,
-                query_by=k,
-                collection_name=COLLECTION,
-                filter_parameters=active_filters,
-                limit=limit
-            )
-            # Fields are ANDed: nothing matched here means nothing can match overall, so
-            # stop rather than querying the remaining fields.
-            if not documents:
-                return []
-            # Narrow the next field's search to what this one matched. A document missing
-            # canonical_id is skipped instead of raising KeyError.
-            matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
-            if matched_ids:
-                active_filters["canonical_id"] = matched_ids
+    documents = []
+    for i, (k, v) in enumerate(valid):
+        # Intermediate passes only collect ids to narrow the next field, so pull a
+        # wide set (250); the final pass is the returned result, capped small (4).
+        limit = FINAL_KEYWORD_LIMIT if i == len(valid) - 1 else NARROW_KEYWORD_LIMIT
+        # KeywordArgs validates norm_name as str and companies as list[str], but coerce
+        # defensively anyway — a stray non-string would make " ".join raise TypeError
+        # and take the whole node down.
+        query = " ".join(str(i) for i in v) if isinstance(v, list) else str(v)
+        documents = search_collection(
+            query=query,
+            query_by=k,
+            collection_name=COLLECTION,
+            filter_parameters=active_filters,
+            limit=limit,
+        )
+        # Fields are ANDed: nothing matched here means nothing can match overall, so
+        # stop rather than querying the remaining fields.
+        if not documents:
+            return []
+        # Narrow the next field's search to what this one matched. A document missing
+        # canonical_id is skipped instead of raising KeyError.
+        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+        if matched_ids:
+            active_filters["canonical_id"] = matched_ids
 
         return documents
     except Exception as e:
@@ -187,5 +188,5 @@ def WebSearch(query: str) -> List[Dict]:
     return [product]
 
 
-# results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
-# print("Web search results", results)
+results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
+print("Web search results", results)
