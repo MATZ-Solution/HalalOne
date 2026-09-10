@@ -18,8 +18,9 @@ FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
 
 @tool(args_schema=KeywordFilterInput)
-def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
-
+def KeywordFilterSearch(
+    keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by keyword. USE THIS when the query names a specific
     product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body,
     location, marketplace, barcode, etc.).
@@ -31,21 +32,17 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
       filter_args: exact-match filters (category_l1/l2, halal_status; sold_in,
         cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace). Pass null if none.
     """
-    # search_collection is a network round-trip to Typesense; a DB blip should degrade
-    # to "no products found" like the other tools, not escape and fail the whole node.
-    try:
-        active_filters = {
-            k: v for k, v in (dict(filter_args) if filter_args else {}).items()
-            if v
-        }
-        # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
-        # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
-        # pydantic v2 model too — so the field lookups below are uniform.
-        keywords = dict(keyword_args) if keyword_args else {}
-        # Iterate in KEYWORD_FIELD_ORDER (norm_name first) so the most selective field
-        # narrows first — an early field's capped result set can't truncate the target
-        # product out of the later fields' searches.
-        valid = [(k, keywords[k]) for k in KEYWORD_FIELD_ORDER if keywords.get(k)]
+    active_filters = {
+        k: v for k, v in (dict(filter_args) if filter_args else {}).items() if v
+    }
+    # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
+    # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
+    # pydantic v2 model too — so the field lookups below are uniform.
+    keywords = dict(keyword_args) if keyword_args else {}
+    # Iterate in KEYWORD_FIELD_ORDER (norm_name first) so the most selective field
+    # narrows first — an early field's capped result set can't truncate the target
+    # product out of the later fields' searches.
+    valid = [(k, keywords[k]) for k in KEYWORD_FIELD_ORDER if keywords.get(k)]
 
     if not valid and active_filters:
         return search_collection(
@@ -79,16 +76,13 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
             return []
         # Narrow the next field's search to what this one matched. A document missing
         # canonical_id is skipped instead of raising KeyError.
-        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+        matched_ids = [
+            doc["canonical_id"] for doc in documents if doc.get("canonical_id")
+        ]
         if matched_ids:
             active_filters["canonical_id"] = matched_ids
 
-        return documents
-    except Exception as e:
-        log.error(
-            "tool.keyword_search.failed", error=str(e), error_type=type(e).__name__
-        )
-        return []
+    return documents
 
 @tool(args_schema = SemanticFilterInput)
 def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
