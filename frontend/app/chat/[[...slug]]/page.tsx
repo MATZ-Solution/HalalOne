@@ -900,7 +900,7 @@ export default function Page() {
                     <div className="cscroll" style={{ flex: 1, overflowY: "auto", padding: "8px 20px 20px" }}>{messagesSkeleton}</div>
                 ) : !hasMessages && !loading ? (
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", padding: 20 }}>
-                        <div aria-hidden="true" style={{ position: "absolute", width: 640, height: 640, borderRadius: "50%", background: "radial-gradient(circle at 50% 45%,color-mix(in srgb,var(--green-700) 20%,transparent),color-mix(in srgb,var(--gold-500) 12%,transparent) 42%,transparent 68%)", filter: "blur(18px)" }} />
+                        <div aria-hidden="true" style={{ position: "absolute", width: 640, height: 640, borderRadius: "50%", background: "radial-gradient(circle at 50% 45%,color-mix(in srgb,var(--green-700) 20%,transparent),color-mix(in srgb,var(--gold-500) 12%,transparent) 42%,transparent 68%)", filter: "blur(18px)", pointerEvents: "none" }} />
                         <div style={{ position: "relative", textAlign: "center" }}>
                             <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-700)", lineHeight: 1.1 }}>Salam {firstName},</div>
                             <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--green-900)", lineHeight: 1.15 }}>How can I assist you today?</div>
