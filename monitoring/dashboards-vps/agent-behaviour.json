@@ -1,0 +1,353 @@
+{
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "piechart", "name": "Pie chart", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" },
+    { "type": "panel", "id": "logs", "name": "Logs", "version": "" },
+    { "type": "panel", "id": "text", "name": "Text", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "What the AI agent is doing - which search tools it picks, whether they find anything, and where it fails. Sections 7 and 8 of the Dashboard Metrics Reference.",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["halalone", "logs", "agent"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "title": "HalalOne - Agent Behaviour",
+  "uid": "halalone-agent-behaviour",
+  "version": 3,
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "transparent": true,
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "### Agent Behaviour &nbsp;·&nbsp; which search tool the AI picks, and whether it finds anything\n`KeywordFilterSearch` exact matching on the product database &nbsp;·&nbsp; `SemanticFilterSearch` meaning-based search for vague questions &nbsp;·&nbsp; `WebSearch` last resort when the database has nothing.\n\n**Two things to watch:** heavy `WebSearch` use means the product catalogue is not answering people's questions, and a tool returning near-zero rows is running but finding nothing - a search-quality problem, not a crash."
+      }
+    },
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Searches run",
+      "description": "How many times the agent called a search tool, and when.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" }, "noValue": "0" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "searches",
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`tool.invoked` [$__interval]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Searches finding nothing",
+      "description": "Tool calls that returned zero products. High numbers point at catalogue gaps or queries the search cannot handle.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0, "noValue": "0",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "empty results",
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", results=\"results\" | event=`tool.invoked` | results = 0 [$__interval]))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Agent crashes",
+      "description": "A step inside the agent raised an error and hit the recovery path. Should be 0.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0, "noValue": "0",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "crashes",
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`agent.node.failed` [$__interval]))"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Photo reading failures",
+      "description": "The vision model failed to read an uploaded product label - either the call failed, the response was unparseable, or it did not match the expected shape.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0, "noValue": "0",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "vlm failures",
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=~`vision_llm\\..*` [$__interval]))"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Search activity by tool, over time",
+      "description": "Which tool the agent reached for, and when. Bands stack, so total height is all searching. A growing WebSearch band means more questions are falling through to the open web.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "decimals": 0,
+          "custom": {
+            "drawStyle": "line", "lineWidth": 1, "fillOpacity": 45, "showPoints": "never",
+            "spanNulls": false, "lineInterpolation": "smooth",
+            "stacking": { "mode": "normal", "group": "A" }, "gradientMode": "opacity"
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "WebSearch" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["sum", "max"], "sortBy": "Total", "sortDesc": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "{{tool}}",
+          "expr": "sum by (tool) (count_over_time({job=\"vps_backend\"} | json event=\"event\", tool=\"tool\" | event=`tool.invoked` [$__interval]))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Tool mix",
+      "description": "Share of searches handled by each tool. Ideally the two database tools dominate and WebSearch is a small slice.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 9 },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": ["percent"],
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "values": ["value", "percent"] },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "palette-classic" }, "noValue": "No searches yet" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "instant",
+          "legendFormat": "{{tool}}",
+          "expr": "sum by (tool) (count_over_time({job=\"vps_backend\"} | json event=\"event\", tool=\"tool\" | event=`tool.invoked` [$__range]))"
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Products found per search",
+      "description": "Average number of rows each tool returns, tracked over time. A line drifting toward zero means that tool has stopped finding useful matches - watch this after any catalogue or prompt change.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "decimals": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "auto", "pointSize": 7, "spanNulls": true, "lineInterpolation": "smooth" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["mean", "min"], "sortBy": "Mean", "sortDesc": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "{{tool}}",
+          "expr": "avg_over_time({job=\"vps_backend\"} | json event=\"event\", tool=\"tool\", results=\"results\" | event=`tool.invoked` | unwrap results [$__interval]) by (tool)"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Empty searches by tool",
+      "description": "How often each tool came back with nothing, with a bar for comparison.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 18 },
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false, "reducer": ["sum"], "fields": "" } },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": false } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value" },
+            "properties": [
+              { "id": "displayName", "value": "Empty results" },
+              { "id": "unit", "value": "short" },
+              { "id": "decimals", "value": 0 },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "text" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } },
+              { "id": "min", "value": 0 }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "tool" }, "properties": [{ "id": "displayName", "value": "Tool" }] }
+        ]
+      },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "indexByName": {}, "renameByName": {} } },
+        { "id": "sortBy", "options": { "fields": {}, "sort": [{ "field": "Value", "desc": true }] } }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "instant",
+          "legendFormat": "{{tool}}",
+          "expr": "sum by (tool) (count_over_time({job=\"vps_backend\"} | json event=\"event\", tool=\"tool\", results=\"results\" | event=`tool.invoked` | results = 0 [$__range]))"
+        }
+      ]
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Agent problems over time",
+      "description": "Everything that went wrong inside the agent, stacked by kind: node crashes, judge failures (including caught hallucinated product IDs), tool failures, web-search retries and vision failures. Empty is the good case.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 27 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0, "decimals": 0,
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 85, "showPoints": "never", "barWidthFactor": 0.8, "barAlignment": 0, "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["sum"], "sortBy": "Total", "sortDesc": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "legendFormat": "{{event}}",
+          "expr": "sum by (event) (count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=~`agent\\.node\\.failed|judge\\..*|tool\\.(semantic_search|web_search)\\.failed|web_search\\.exa_stream\\..*|vision_llm\\..*|search_node\\.declined_tool` [$__interval]))"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "piechart",
+      "title": "Photo uploads by route",
+      "description": "How product photos reach the vision model - the HTTP endpoint or a WebSocket image message.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 27 },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": ["percent"],
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "values": ["value", "percent"] },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "palette-classic" }, "noValue": "No photos uploaded yet" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "instant",
+          "legendFormat": "{{action}}",
+          "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=~`http\\.extract_image|ws\\.image` [$__range]))"
+        }
+      ]
+    },
+
+    {
+      "id": 11,
+      "type": "logs",
+      "title": "Recent agent problems - the actual log lines",
+      "description": "The raw records behind the charts above, newest first. Click a line to expand it and see the session, the node that failed and the full error.",
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 36 },
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false,
+        "wrapLogMessage": true, "prettifyLogMessage": true, "enableLogDetails": true,
+        "dedupStrategy": "none", "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "queryType": "range",
+          "expr": "{job=\"vps_backend\"} | json event=\"event\" | event=~`agent\\.node\\.failed|judge\\..*|tool\\..*\\.failed|web_search\\.exa_stream\\..*|vision_llm\\..*|search_node\\.declined_tool`"
+        }
+      ]
+    }
+  ]
+}
