@@ -1,7 +1,7 @@
 """Layer 2 — `SemanticFilterSearch` in `agents/langgraph_agent/tools/tools.py`.
 
 The sibling of `KeywordFilterSearch` (see `test_tools_keyword_search.py`): instead of
-keyword matching it turns the query into an embedding and asks Typesense for the 10
+keyword matching it turns the query into an embedding and asks Typesense for the 8
 nearest vectors. Like its sibling, this file never asserts on search quality — the
 embedding model and the Typesense client are both faked. It asserts on the tool's own
 decisions:
@@ -24,7 +24,6 @@ tool, and asserting it here would duplicate Layer 1's xfail.
 from types import SimpleNamespace
 
 import pytest
-
 from agents.langgraph_agent.tools.tools import SemanticFilterSearch
 
 pytestmark = pytest.mark.unit
@@ -48,13 +47,13 @@ class TestEmbedding:
         assert fake_embedding_model.calls == ["a calcium-rich snack for children"]
 
     def test_vector_query_serialises_the_embedding(
-        self, fake_embedding_model, fake_ts_client
+            self, fake_embedding_model, fake_ts_client
     ):
         # fake_embedding_model is deterministic: [0.1, 0.2, 0.3].
         SemanticFilterSearch.invoke({"semantic_query": "x"})
 
         entry = search_entry(fake_ts_client)
-        assert entry["vector_query"] == "embedding:([0.1,0.2,0.3], k:10)"
+        assert entry["vector_query"] == "embedding:([0.1,0.2,0.3], distance_threshold: 0.3, k:8)"
 
     def test_embedding_is_requested_before_any_search(self, fake_embedding_model, fake_ts_client):
         # The embed call must happen before the Typesense call, and its result must be
@@ -78,7 +77,7 @@ class TestRequestConstruction:
         assert len(searches) == 1
         assert searches[0]["collection"] == "halal_products"
         assert searches[0]["q"] == "*"
-        assert searches[0]["per_page"] == 10
+        assert searches[0]["per_page"] == 8
         assert searches[0]["exclude_fields"] == "embedding"
 
     def test_no_filters_omits_filter_by(self, fake_embedding_model, fake_ts_client):
@@ -101,22 +100,22 @@ class TestRequestConstruction:
         # Only the meaningful clause is asserted; the spurious `:="None"` clauses are
         # FINDINGS.md #1, pinned at Layer 1 (see module docstring).
         SemanticFilterSearch.invoke(
-            {"semantic_query": "x", "filter_args": {"halal_status": "halal"}}
+            {"semantic_query": "x", "filter_args": {"halal_status": "Halal"}}
         )
 
         filter_by = search_entry(fake_ts_client)["filter_by"]
-        assert 'halal_status:="halal"' in filter_by
+        assert 'halal_status:="Halal"' in filter_by
 
     def test_multiple_filters_are_combined(self, fake_embedding_model, fake_ts_client):
         SemanticFilterSearch.invoke(
             {
                 "semantic_query": "x",
-                "filter_args": {"halal_status": "halal", "category_l1": "food"},
+                "filter_args": {"halal_status": "Halal", "category_l1": "food"},
             }
         )
 
         filter_by = search_entry(fake_ts_client)["filter_by"]
-        assert 'halal_status:="halal"' in filter_by
+        assert 'halal_status:="Halal"' in filter_by
         assert 'category_l1:="food"' in filter_by
 
 
@@ -249,10 +248,10 @@ class TestSchemaCoercion:
     ):
         # A raw dict arrives from the LLM; Pydantic turns it into a FilterArgs.
         SemanticFilterSearch.invoke(
-            {"semantic_query": "x", "filter_args": {"halal_status": "halal"}}
+            {"semantic_query": "x", "filter_args": {"halal_status": "Halal"}}
         )
 
-        assert 'halal_status:="halal"' in search_entry(fake_ts_client)["filter_by"]
+        assert 'halal_status:="Halal"' in search_entry(fake_ts_client)["filter_by"]
 
     def test_non_dict_filter_args_is_rejected(self):
         from pydantic import ValidationError

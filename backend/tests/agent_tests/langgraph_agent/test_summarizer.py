@@ -1,11 +1,8 @@
 from agents.langgraph_agent.LLMs.llm import summarizer_llm
 from agents.langgraph_agent.prompts.prompt import SUMMARIZE_CONVERSATION_PROMPT
-from langchain.messages import HumanMessage, AIMessage, SystemMessage
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from log.logger import logger
-from langchain_core.messages.utils import (
-    count_tokens_approximately  
-)
-
 
 TURNS = [
     # --- Groceries; NUT ALLERGY planted at turn 3 -------------------------

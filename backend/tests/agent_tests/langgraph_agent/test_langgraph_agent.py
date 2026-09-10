@@ -11,21 +11,20 @@ The individual graph nodes, tools, and prompts are already covered by
 Every external dependency (session_state, chat_store, the compiled graph,
 and the summarizer LLM) is replaced by the `agent_mocks` fixture.
 """
-import json
-import pytest
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
-from langchain.messages import HumanMessage, AIMessage
-
+import pytest
 from agents.langgraph_agent.main_langgraph_agent import (
-    _history_dicts_to_lc,
-    context_token_count,
-    compact_session,
-    stream_agent,
-    run_agent,
     KEEP_MESSAGES,
+    _history_dicts_to_lc,
+    compact_session,
+    context_token_count,
+    run_agent,
+    stream_agent,
 )
+from langchain.messages import AIMessage, HumanMessage
 
 pytestmark = pytest.mark.unit
 

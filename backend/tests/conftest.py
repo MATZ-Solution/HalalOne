@@ -15,8 +15,7 @@ Two jobs:
    touches a real service is a bug in the test, not a feature.
 
 Fixtures deliberately patch the symbol *where it is used* (e.g.
-`...tools.tools.search_collection`), not where it is defined, because the agent modules
-bind these names at import time.
+`...tools.tools.search_collection`), not where it is defined, because the agent modules bind these names at import time.
 """
 
 import copy
@@ -29,8 +28,7 @@ os.environ.setdefault("CEREBRAS_API_KEY", "test-cerebras-key")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("LOG_LEVEL", "CRITICAL")
 
-import pytest  # noqa: E402
-
+import pytest
 
 _UNSET = object()
 
@@ -43,7 +41,7 @@ def _snapshot(value):
     """
     try:
         return copy.deepcopy(value)
-    except Exception:
+    except Exception: 
         return value
 
 

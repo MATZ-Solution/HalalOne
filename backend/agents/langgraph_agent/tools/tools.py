@@ -108,7 +108,7 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
 
         if filter_str:
             vector_query = (
-                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K}"
+                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K} ,"
                 f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF})"
             )
         else:
@@ -118,8 +118,8 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
             "collection": COLLECTION,
             "q": "*",
             "vector_query": vector_query,
-            "per_page": K
-            # "exclude_fields": "embedding",
+            "per_page": K,
+            "exclude_fields": "embedding",
         }
 
         if filter_str:

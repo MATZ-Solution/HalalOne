@@ -10,7 +10,6 @@ Two real defects are pinned below with `xfail(strict=True)` — the tests descri
 which is the signal to delete the marker. See the module docstring of each for detail.
 """
 import pytest
-
 from agents.langgraph_agent.models.models import FilterArgs
 from agents.langgraph_agent.utils.utils import (
     COLLECTION,
@@ -53,7 +52,7 @@ class TestStringFields:
         [
             ("category_l1", "food"),
             ("category_l2", "frozen"),
-            ("halal_status", "halal"),
+            ("halal_status", "Halal"),
         ],
     )
     def test_string_field_is_quoted_and_exact_matched(self, field, value):
@@ -86,18 +85,18 @@ class TestListFields:
 class TestCombining:
     def test_multiple_fields_are_joined_with_and(self):
         result = build_filter_string(
-            FilterArgs(halal_status="halal", category_l1="food", sold_in=["UK"])
+            FilterArgs(halal_status="Halal", category_l1="food", sold_in=["UK"])
         )
         clauses = meaningful_parts(result)
         assert len(clauses) == 3
-        assert 'halal_status:="halal"' in clauses
+        assert 'halal_status:="Halal"' in clauses
         assert 'category_l1:="food"' in clauses
 
     def test_field_order_follows_the_model_not_the_caller(self):
         # Two callers passing the same filters in different order must produce the same
         # string, otherwise identical searches would miss any response cache keyed on it.
-        a = build_filter_string(FilterArgs(halal_status="halal", category_l1="food"))
-        b = build_filter_string(FilterArgs(category_l1="food", halal_status="halal"))
+        a = build_filter_string(FilterArgs(halal_status="Halal", category_l1="food"))
+        b = build_filter_string(FilterArgs(category_l1="food", halal_status="Halal"))
         assert a == b
 
 
@@ -131,7 +130,7 @@ class TestRegressionGuards:
     def test_unset_fields_are_omitted(self):
         # Finding #1: unset fields used to be emitted as `field:="None"`, which made every
         # filtered semantic search match zero documents.
-        assert build_filter_string(FilterArgs(halal_status="halal")) == 'halal_status:="halal"'
+        assert build_filter_string(FilterArgs(halal_status="Halal")) == 'halal_status:="Halal"'
 
     def test_all_unset_is_equivalent_to_no_filters(self):
         # Finding #2: FilterArgs() must mean "no filtering", exactly like None.

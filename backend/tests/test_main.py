@@ -10,30 +10,32 @@ it would require 15+ simultaneous mocks for zero additional logic coverage.
 
 Organised by function, grouped into behavioural classes.
 """
-import json
-import pytest
-import asyncio
 
+import asyncio
+import json
+
+import pytest
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from main import (
-    _history_to_messages,
-    _rows_to_history,
-    _session_exists_cached,
-    _load_context,
-    _stream_and_persist,
-    run_prompt_pipeline,
-    resume_after_confirm,
-    resume_after_decline,
+    COMPACTION_ASK_MSG,
     ERROR_RESULT,
     SUMMARY_TOKEN_THRESHOLD,
-    COMPACTION_ASK_MSG,
+    _history_to_messages,
+    _load_context,
+    _rows_to_history,
+    _session_exists_cached,
+    _stream_and_persist,
+    resume_after_confirm,
+    resume_after_decline,
+    run_prompt_pipeline,
 )
-from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from session_state import IDLE_COMPACTION
 
 pytestmark = pytest.mark.unit
 
 
 # ── helpers ──────────────────────────────────────────────────────────
+
 
 def _fake_stream(*chunks):
     """Build a fake async generator that yields the given chunks.
@@ -43,15 +45,20 @@ def _fake_stream(*chunks):
             {"type": "results", "response": "Hello!", "documents": []}
         )
     """
+
     async def gen(*args, **kwargs):
         for c in chunks:
             yield c
-    return gen(*args if False else ())  # return the async generator object
+
+    return gen(
+        *args if False else ()
+    )  # return the async generator object  # noqa: F821
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # _history_to_messages — pure conversion, no mocking needed
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestHistoryToMessages:
     def test_empty_history_returns_empty_list(self):
@@ -76,7 +83,9 @@ class TestHistoryToMessages:
 
     def test_summary_prepended_as_system_message(self):
         history = [{"role": "user", "content": "Hi"}]
-        result = _history_to_messages(history, summary="Previous discussion about halal foods")
+        result = _history_to_messages(
+            history, summary="Previous discussion about halal foods"
+        )
 
         assert len(result) == 2
         assert isinstance(result[0], SystemMessage)
@@ -95,6 +104,7 @@ class TestHistoryToMessages:
 # _rows_to_history — pure conversion, no mocking needed
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestRowsToHistory:
     def test_user_row_gets_plain_content(self):
         rows = [{"id": "m1", "role": "user", "content": "Is this halal?"}]
@@ -103,7 +113,14 @@ class TestRowsToHistory:
         assert result == [{"id": "m1", "role": "user", "content": "Is this halal?"}]
 
     def test_assistant_row_gets_json_packed_content(self):
-        rows = [{"id": "m2", "role": "assistant", "content": "Yes it is!", "search_results": [{"doc": "cert1"}]}]
+        rows = [
+            {
+                "id": "m2",
+                "role": "assistant",
+                "content": "Yes it is!",
+                "search_results": [{"doc": "cert1"}],
+            }
+        ]
         result = _rows_to_history(rows)
 
         assert result[0]["role"] == "assistant"
@@ -122,6 +139,7 @@ class TestRowsToHistory:
 # ═══════════════════════════════════════════════════════════════════════
 # _session_exists_cached — Valkey shortcut for session ownership
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestSessionExistsCached:
     async def test_returns_true_from_valkey_cache_without_db_call(self, main_mocks):
@@ -157,6 +175,7 @@ class TestSessionExistsCached:
 # _load_context — Valkey cache with DB fallback
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestLoadContext:
     async def test_returns_cached_data_on_valkey_hit(self, main_mocks):
         cached_history = [{"id": "m1", "role": "user", "content": "Hi"}]
@@ -178,7 +197,8 @@ class TestLoadContext:
         main_mocks["load_summary"].return_value = None
 
         main_mocks["cs_get_latest_summary"].return_value = {
-            "summary": "Rebuilt summary", "message_ids": ["m0"]
+            "summary": "Rebuilt summary",
+            "message_ids": ["m0"],
         }
         main_mocks["cs_get_messages_excluding_ids"].return_value = [
             {"id": "m1", "role": "user", "content": "What is halal?"}
@@ -209,10 +229,15 @@ class TestLoadContext:
 # _stream_and_persist — run agent, save answer, publish chunks
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestStreamAndPersist:
     async def test_persists_result_and_publishes(self, main_mocks):
         main_mocks["stream_agent"].return_value = _fake_stream(
-            {"type": "results", "response": "It is halal.", "documents": [{"doc": "cert1"}]}
+            {
+                "type": "results",
+                "response": "It is halal.",
+                "documents": [{"doc": "cert1"}],
+            }
         )
 
         await _stream_and_persist("u1", "s1", "Is it halal?", [])
@@ -264,7 +289,10 @@ class TestStreamAndPersist:
         async def fake_persist():
             order.append("user_persist")
 
-        main_mocks["cs_insert_message"].side_effect = lambda *a, **kw: order.append("assistant_insert") or asyncio.coroutine(lambda: "msg-002")()
+        main_mocks["cs_insert_message"].side_effect = (
+            lambda *a, **kw: order.append("assistant_insert")
+            or asyncio.coroutine(lambda: "msg-002")()
+        )
 
         main_mocks["stream_agent"].return_value = _fake_stream(
             {"type": "results", "response": "Answer", "documents": []}
@@ -280,6 +308,7 @@ class TestStreamAndPersist:
 # ═══════════════════════════════════════════════════════════════════════
 # run_prompt_pipeline — the core decision engine
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestRunPromptPipeline:
     async def test_creates_session_if_not_exists(self, main_mocks):
@@ -317,7 +346,11 @@ class TestRunPromptPipeline:
         """Token count over threshold with 0 declines → ask the user."""
         main_mocks["is_session_known"].return_value = True
         main_mocks["count_tokens"].return_value = SUMMARY_TOKEN_THRESHOLD + 500
-        main_mocks["load_compaction"].return_value = {"phase": "idle", "declines": 0, "pending": None}
+        main_mocks["load_compaction"].return_value = {
+            "phase": "idle",
+            "declines": 0,
+            "pending": None,
+        }
 
         await run_prompt_pipeline("s1", "u1", "Another question")
 
@@ -338,9 +371,19 @@ class TestRunPromptPipeline:
     async def test_forces_compaction_after_three_declines(self, main_mocks):
         """Token count over threshold with 3 declines → forced compaction."""
         main_mocks["is_session_known"].return_value = True
-        main_mocks["count_tokens"].return_value = SUMMARY_TOKEN_THRESHOLD * 4  # way over 3x threshold
-        main_mocks["load_compaction"].return_value = {"phase": "idle", "declines": 3, "pending": None}
-        main_mocks["compact_session"].return_value = ("Compacted summary", [{"id": "m5", "role": "user", "content": "latest"}], True)
+        main_mocks["count_tokens"].return_value = (
+            SUMMARY_TOKEN_THRESHOLD * 4
+        )  # way over 3x threshold
+        main_mocks["load_compaction"].return_value = {
+            "phase": "idle",
+            "declines": 3,
+            "pending": None,
+        }
+        main_mocks["compact_session"].return_value = (
+            "Compacted summary",
+            [{"id": "m5", "role": "user", "content": "latest"}],
+            True,
+        )
         main_mocks["stream_agent"].return_value = _fake_stream(
             {"type": "results", "response": "Answer after compaction", "documents": []}
         )
@@ -366,9 +409,17 @@ class TestRunPromptPipeline:
         """1 decline → threshold is 2x, so at 1.5x tokens the agent runs normally."""
         main_mocks["is_session_known"].return_value = True
         main_mocks["count_tokens"].return_value = int(SUMMARY_TOKEN_THRESHOLD * 1.5)
-        main_mocks["load_compaction"].return_value = {"phase": "idle", "declines": 1, "pending": None}
+        main_mocks["load_compaction"].return_value = {
+            "phase": "idle",
+            "declines": 1,
+            "pending": None,
+        }
         main_mocks["stream_agent"].return_value = _fake_stream(
-            {"type": "results", "response": "Still under the raised threshold", "documents": []}
+            {
+                "type": "results",
+                "response": "Still under the raised threshold",
+                "documents": [],
+            }
         )
 
         await run_prompt_pipeline("s1", "u1", "Another question")
@@ -382,13 +433,19 @@ class TestRunPromptPipeline:
 # resume_after_confirm — user accepted compaction
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestResumeAfterConfirm:
     async def test_runs_compaction_and_answers_paused_prompt(self, main_mocks):
         main_mocks["load_compaction"].return_value = {
-            "phase": "awaiting", "declines": 0,
+            "phase": "awaiting",
+            "declines": 0,
             "pending": {"prompt": "Is gelatin halal?"},
         }
-        main_mocks["compact_session"].return_value = ("Summary after fold", [{"id": "m5", "role": "user", "content": "latest"}], True)
+        main_mocks["compact_session"].return_value = (
+            "Summary after fold",
+            [{"id": "m5", "role": "user", "content": "latest"}],
+            True,
+        )
         main_mocks["stream_agent"].return_value = _fake_stream(
             {"type": "results", "response": "Answer after compaction", "documents": []}
         )
@@ -400,7 +457,9 @@ class TestResumeAfterConfirm:
 
     async def test_no_pending_prompt_clears_and_noops(self, main_mocks):
         main_mocks["load_compaction"].return_value = {
-            "phase": "idle", "declines": 0, "pending": None,
+            "phase": "idle",
+            "declines": 0,
+            "pending": None,
         }
 
         await resume_after_confirm("s1", "u1")
@@ -414,10 +473,12 @@ class TestResumeAfterConfirm:
 # resume_after_decline — user rejected compaction
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestResumeAfterDecline:
     async def test_bumps_declines_and_answers_with_full_context(self, main_mocks):
         main_mocks["load_compaction"].return_value = {
-            "phase": "awaiting", "declines": 1,
+            "phase": "awaiting",
+            "declines": 1,
             "pending": {"prompt": "What about E120?"},
         }
         main_mocks["stream_agent"].return_value = _fake_stream(
@@ -438,7 +499,8 @@ class TestResumeAfterDecline:
 
     async def test_declines_capped_at_three(self, main_mocks):
         main_mocks["load_compaction"].return_value = {
-            "phase": "awaiting", "declines": 3,
+            "phase": "awaiting",
+            "declines": 3,
             "pending": {"prompt": "Another one"},
         }
         main_mocks["stream_agent"].return_value = _fake_stream(
@@ -452,7 +514,9 @@ class TestResumeAfterDecline:
 
     async def test_no_pending_prompt_clears_and_noops(self, main_mocks):
         main_mocks["load_compaction"].return_value = {
-            "phase": "idle", "declines": 0, "pending": None,
+            "phase": "idle",
+            "declines": 0,
+            "pending": None,
         }
 
         await resume_after_decline("s1", "u1")

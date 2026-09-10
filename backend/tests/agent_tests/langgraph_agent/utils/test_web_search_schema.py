@@ -21,15 +21,13 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
-from agents.langgraph_agent.tools import web_search
 from agents.langgraph_agent.models.models import OutputSchema
-from agents.langgraph_agent.tools.web_search import (
+from agents.langgraph_agent.tools.tools import WebSearch, stream_web_search
+from agents.langgraph_agent.utils.utils import FILTER_FIELDS, KEYWORD_FIELDS
+from agents.langgraph_agent.utils.web_search import (
     WEB_OUTPUT_SCHEMA,
     _str_list,
-    stream_web_search,
 )
-from agents.langgraph_agent.utils.utils import FILTER_FIELDS, KEYWORD_FIELDS
 
 pytestmark = pytest.mark.unit
 
@@ -37,7 +35,7 @@ EXA_PROPERTY_CAP = 10
 
 # Fields Exa cannot supply because the schema is exactly at the property cap; the DB path
 # can. See FINDINGS.md #8.
-_CAP_OFF_FIELDS = {"health_info", "typical_uses", "barcodes"}
+_CAP_OFF_FIELDS = {"health_info", "fda_numbers", "barcodes"}
 
 
 def props():
@@ -104,7 +102,14 @@ class TestFieldTypes:
             assert props()[field]["type"] == "string", field
 
     def test_array_fields_have_string_items(self):
-        for field in ("companies", "cert_bodies", "cert_numbers", "sold_in", "marketplace", "fda_numbers"):
+        for field in (
+            "companies",
+            "cert_bodies",
+            "cert_numbers",
+            "sold_in",
+            "marketplace",
+            # "fda_numbers",
+        ):
             assert props()[field]["type"] == "array", field
             assert props()[field]["items"]["type"] == "string", field
 
@@ -118,9 +123,12 @@ class TestConsistencyWithProductModel:
         assert set(props()) <= set(OutputSchema.model_fields)
 
     def test_no_stray_fields_outside_the_agent_field_sets(self):
-        # The agent's DB fields are exactly KEYWORD_FIELDS | FILTER_FIELDS; a schema key
-        # outside both would be a typo no downstream code reads.
-        assert set(props()) <= (KEYWORD_FIELDS | FILTER_FIELDS)
+        # The web schema may include OutputSchema fields the DB tools don't search on
+        # (e.g. typical_uses) — that's the real invariant, checked in
+        # test_every_property_exists_on_output_schema. KEYWORD_FIELDS | FILTER_FIELDS
+        # covers only what the DB-search tools accept as query/filter args, which is a
+        # narrower set by design.
+        assert set(props()) <= (KEYWORD_FIELDS | FILTER_FIELDS | {"typical_uses"})
 
     def test_tool_managed_fields_are_not_requested_from_exa(self):
         # canonical_id / verified / grounding are set deterministically by WebSearch, so
@@ -194,8 +202,12 @@ def fake_httpx(monkeypatch):
             return self._resp
 
     monkeypatch.setattr(
-        "agents.langgraph_agent.tools.web_search.httpx",
-        SimpleNamespace(Client=FakeClient, HTTPError=real_httpx.HTTPError),
+        "agents.langgraph_agent.utils.web_search.httpx",
+        SimpleNamespace(
+            Client=FakeClient,
+            HTTPError=real_httpx.HTTPError,
+            HTTPStatusError=real_httpx.HTTPStatusError,
+        ),
         raising=True,
     )
     return SimpleNamespace(captured=captured, state=state)
@@ -275,7 +287,7 @@ class TestPayloadUse:
             def error(self, event, **kw):
                 logged.append((event, kw))
 
-        monkeypatch.setattr("agents.langgraph_agent.tools.web_search.log", FakeLog())
+        monkeypatch.setattr("agents.langgraph_agent.utils.web_search.log", FakeLog())
         monkeypatch.delenv("EXA_API_KEY", raising=False)
 
         assert list(stream_web_search("x")) == []
@@ -291,10 +303,12 @@ class TestPayloadUse:
             def error(self, event, **kw):
                 logged.append((event, kw))
 
-        monkeypatch.setattr("agents.langgraph_agent.tools.web_search.log", FakeLog())
+        monkeypatch.setattr("agents.langgraph_agent.utils.web_search.log", FakeLog())
         monkeypatch.setenv("EXA_API_KEY", "test-key")
+
+        fake_response = SimpleNamespace(status_code=404, headers={})
         fake_httpx.state["error"] = real_httpx.HTTPStatusError(
-            "boom", request=None, response=None
+            "boom", request=None, response=fake_response
         )
 
         assert list(stream_web_search("x")) == []

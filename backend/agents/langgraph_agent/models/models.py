@@ -74,7 +74,7 @@ class WebSearchInput(BaseModel):
             "about. Use only after the database search tools found nothing relevant."
         )
     )
-
+ 
 class FinalAnswerInput(BaseModel):
     response: str = Field(
         description="Your natural language message to the user. Can't be none"

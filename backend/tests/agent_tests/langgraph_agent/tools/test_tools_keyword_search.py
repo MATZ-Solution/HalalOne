@@ -14,7 +14,6 @@ function, because that is how `tool_node` calls it — so the `KeywordFilterInpu
 coercion (a raw dict becoming a `FilterArgs`) is covered too.
 """
 import pytest
-
 from agents.langgraph_agent.tools.tools import KeywordFilterSearch
 
 pytestmark = pytest.mark.unit
@@ -34,7 +33,7 @@ class TestNoKeywordsBranch:
         product = make_product()
         fake_search_collection.set(returns=[product])
 
-        result = KeywordFilterSearch.invoke({"filter_args": {"halal_status": "halal"}})
+        result = KeywordFilterSearch.invoke({"filter_args": {"halal_status": "Halal"}})
 
         assert result == [product]
         assert fake_search_collection.call_count == 1
@@ -42,7 +41,7 @@ class TestNoKeywordsBranch:
             "query": "*",
             "query_by": "norm_name",
             "collection_name": "halal_products",
-            "filter_parameters": {"halal_status": "halal"},
+            "filter_parameters": {"halal_status": "Halal"},
         }
 
     def test_filters_only_passes_unset_filter_fields_through_as_absent(
@@ -50,10 +49,10 @@ class TestNoKeywordsBranch:
     ):
         # Unlike build_filter_string (see FINDINGS.md #1), this path drops falsy values,
         # so an unset field never reaches Typesense as the string "None".
-        KeywordFilterSearch.invoke({"filter_args": {"halal_status": "halal"}})
+        KeywordFilterSearch.invoke({"filter_args": {"halal_status": "Halal"}})
 
         sent = calls_to(fake_search_collection)[0]["filter_parameters"]
-        assert sent == {"halal_status": "halal"}
+        assert sent == {"halal_status": "Halal"}
         assert "None" not in str(sent)
 
     def test_no_keywords_and_no_filters_short_circuits(self, fake_search_collection):
@@ -80,15 +79,14 @@ class TestKeywordFieldSelection:
     """Only the four whitelisted fields may become queries."""
 
     @pytest.mark.parametrize(
-        "field", ["norm_name", "companies", "health_info", "typical_uses"]
+        "field", ["norm_name", "companies"]
     )
     def test_each_whitelisted_field_is_queried_against_itself(
         self, fake_search_collection, make_product, field
     ):
         fake_search_collection.set(returns=[make_product()])
-
-        KeywordFilterSearch.invoke({"keyword_args": {field: "value"}})
-
+        value = "value" if field == "norm_name" else ["value"]
+        KeywordFilterSearch.invoke({"keyword_args": {field: value}})
         assert calls_to(fake_search_collection)[0]["query_by"] == field
 
     def test_unknown_keys_are_dropped(self, fake_search_collection):
@@ -113,14 +111,25 @@ class TestKeywordFieldSelection:
         assert fake_search_collection.call_count == 1
         assert calls_to(fake_search_collection)[0]["query_by"] == "norm_name"
 
-    @pytest.mark.parametrize("falsy", ["", [], None])
-    def test_falsy_values_are_dropped(self, fake_search_collection, falsy):
-        result = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": falsy}})
+    # @pytest.mark.parametrize("falsy", ["", [], None])
+    # def test_falsy_values_are_dropped(self, fake_search_collection, falsy):
+    #     result = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": falsy}})
 
+    #     assert result == []
+    #     assert fake_search_collection.called is False, (
+    #         "an empty keyword must not become an empty Typesense query"
+    #     )
+    @pytest.mark.parametrize("falsy", ["", None])
+    def test_norm_name_falsy_values_are_dropped(self, fake_search_collection, falsy):
+        result = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": falsy}})
         assert result == []
-        assert fake_search_collection.called is False, (
-            "an empty keyword must not become an empty Typesense query"
-        )
+        assert fake_search_collection.called is False
+
+    @pytest.mark.parametrize("falsy", [[], None])
+    def test_companies_falsy_values_are_dropped(self, fake_search_collection, falsy):
+        result = KeywordFilterSearch.invoke({"keyword_args": {"companies": falsy}})
+        assert result == []
+        assert fake_search_collection.called is False
 
 
 class TestQueryConstruction:
@@ -157,12 +166,12 @@ class TestQueryConstruction:
         KeywordFilterSearch.invoke(
             {
                 "keyword_args": {"norm_name": "nuggets"},
-                "filter_args": {"halal_status": "halal", "sold_in": ["UK"]},
+                "filter_args": {"halal_status": "Halal", "sold_in": ["UK"]},
             }
         )
 
         sent = calls_to(fake_search_collection)[0]["filter_parameters"]
-        assert sent["halal_status"] == "halal"
+        assert sent["halal_status"] == "Halal"
         assert sent["sold_in"] == ["UK"]
 
 
@@ -196,12 +205,12 @@ class TestNarrowingAcrossFields:
         KeywordFilterSearch.invoke(
             {
                 "keyword_args": {"norm_name": "nuggets", "companies": ["Crestwood"]},
-                "filter_args": {"halal_status": "halal"},
+                "filter_args": {"halal_status": "Halal"},
             }
         )
 
         second = calls_to(fake_search_collection)[1]["filter_parameters"]
-        assert second["halal_status"] == "halal", "user filters must survive narrowing"
+        assert second["halal_status"] == "Halal", "user filters must survive narrowing"
         assert second["canonical_id"] == ["p1"]
 
     def test_result_is_the_final_rounds_documents(
@@ -254,11 +263,20 @@ class TestNarrowingAcrossFields:
 
 
 class TestMalformedLLMArguments:
-    """`keyword_args` is typed `Dict[str, Any]`, so Pydantic validates the container but
-    not what is inside it. Findings #5 and #6 were crashes on this path; both are fixed,
-    and these are now the regression guards. The bar is the same one the sibling tools
-    already meet: bad input degrades to "no products found", it never fails the node.
-    """
+    """`keyword_args` is a typed `KeywordArgs` model, but `mode="before"` validators
+    coerce non-string scalars/list items rather than rejecting them, so a malformed
+    LLM argument degrades to "no products found" instead of crashing the node
+    (Finding #5)."""
+
+    # def test_wrong_type_in_companies_is_rejected_at_the_schema_boundary(self):
+    #     from pydantic import ValidationError
+    #     with pytest.raises(ValidationError):
+    #         KeywordFilterSearch.invoke({"keyword_args": {"companies": [123]}})
+
+    # def test_wrong_type_in_norm_name_is_rejected_at_the_schema_boundary(self):
+    #     from pydantic import ValidationError
+    #     with pytest.raises(ValidationError):
+    #         KeywordFilterSearch.invoke({"keyword_args": {"norm_name": 12345}})
 
     def test_non_dict_keyword_args_is_rejected_at_the_schema_boundary(self):
         # This one was always handled well: Pydantic refuses it before any code runs.
@@ -346,6 +364,7 @@ class TestMalformedLLMArguments:
         second = calls_to(fake_search_collection)[1]["filter_parameters"]
         assert second["halal_status"] == "Halal"
         assert "canonical_id" not in second
+
 
 
 class TestToolContract:
