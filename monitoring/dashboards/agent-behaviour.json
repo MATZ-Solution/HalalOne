@@ -1,14 +1,4 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_LOKI",
-      "label": "Loki",
-      "description": "The Loki datasource holding halalify-backend logs",
-      "type": "datasource",
-      "pluginId": "loki",
-      "pluginName": "Loki"
-    }
-  ],
   "__requires": [
     { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
     { "type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0" },
@@ -51,7 +41,7 @@
       "type": "stat",
       "title": "Searches run",
       "description": "How many times the agent called a search tool, and when.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -61,7 +51,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "searches",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`tool.invoked` [$__interval]))"
@@ -73,7 +63,7 @@
       "type": "stat",
       "title": "Searches finding nothing",
       "description": "Tool calls that returned zero products. High numbers point at catalogue gaps or queries the search cannot handle.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -90,7 +80,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "empty results",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", results=\"results\" | event=`tool.invoked` | results = 0 [$__interval]))"
@@ -102,7 +92,7 @@
       "type": "stat",
       "title": "Agent crashes",
       "description": "A step inside the agent raised an error and hit the recovery path. Should be 0.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -119,7 +109,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "crashes",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`agent.node.failed` [$__interval]))"
@@ -131,7 +121,7 @@
       "type": "stat",
       "title": "Photo reading failures",
       "description": "The vision model failed to read an uploaded product label - either the call failed, the response was unparseable, or it did not match the expected shape.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -148,7 +138,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "vlm failures",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`vision_llm\\..*` [$__interval]))"
@@ -161,7 +151,7 @@
       "type": "timeseries",
       "title": "Search activity by tool, over time",
       "description": "Which tool the agent reached for, and when. Bands stack, so total height is all searching. A growing WebSearch band means more questions are falling through to the open web.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 9 },
       "fieldConfig": {
         "defaults": {
@@ -183,7 +173,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{tool}}",
           "expr": "sum by (tool) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", tool=\"tool\" | event=`tool.invoked` [$__interval]))"
@@ -195,7 +185,7 @@
       "type": "piechart",
       "title": "Tool mix",
       "description": "Share of searches handled by each tool. Ideally the two database tools dominate and WebSearch is a small slice.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 8, "x": 16, "y": 9 },
       "options": {
         "pieType": "donut",
@@ -208,7 +198,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{tool}}",
           "expr": "sum by (tool) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", tool=\"tool\" | event=`tool.invoked` [$__range]))"
@@ -221,7 +211,7 @@
       "type": "timeseries",
       "title": "Products found per search",
       "description": "Average number of rows each tool returns, tracked over time. A line drifting toward zero means that tool has stopped finding useful matches - watch this after any catalogue or prompt change.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 18 },
       "fieldConfig": {
         "defaults": {
@@ -237,7 +227,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{tool}}",
           "expr": "avg_over_time({job=\"halalify-backend\"} | json event=\"event\", tool=\"tool\", results=\"results\" | event=`tool.invoked` | unwrap results [$__interval]) by (tool)"
@@ -249,7 +239,7 @@
       "type": "table",
       "title": "Empty searches by tool",
       "description": "How often each tool came back with nothing, with a bar for comparison.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 8, "x": 16, "y": 18 },
       "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false, "reducer": ["sum"], "fields": "" } },
       "fieldConfig": {
@@ -276,7 +266,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{tool}}",
           "expr": "sum by (tool) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", tool=\"tool\", results=\"results\" | event=`tool.invoked` | results = 0 [$__range]))"
@@ -289,7 +279,7 @@
       "type": "timeseries",
       "title": "Agent problems over time",
       "description": "Everything that went wrong inside the agent, stacked by kind: node crashes, judge failures (including caught hallucinated product IDs), tool failures, web-search retries and vision failures. Empty is the good case.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 27 },
       "fieldConfig": {
         "defaults": {
@@ -305,7 +295,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{event}}",
           "expr": "sum by (event) (count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`agent\\.node\\.failed|judge\\..*|tool\\.(semantic_search|web_search)\\.failed|web_search\\.exa_stream\\..*|vision_llm\\..*|search_node\\.declined_tool` [$__interval]))"
@@ -317,7 +307,7 @@
       "type": "piechart",
       "title": "Photo uploads by route",
       "description": "How product photos reach the vision model - the HTTP endpoint or a WebSocket image message.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 8, "x": 16, "y": 27 },
       "options": {
         "pieType": "donut",
@@ -330,7 +320,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{action}}",
           "expr": "sum by (action) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=~`http\\.extract_image|ws\\.image` [$__range]))"
@@ -343,7 +333,7 @@
       "type": "logs",
       "title": "Recent agent problems - the actual log lines",
       "description": "The raw records behind the charts above, newest first. Click a line to expand it and see the session, the node that failed and the full error.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 11, "w": 24, "x": 0, "y": 36 },
       "options": {
         "showTime": true, "showLabels": false, "showCommonLabels": false,
@@ -353,7 +343,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "expr": "{job=\"halalify-backend\"} | json event=\"event\" | event=~`agent\\.node\\.failed|judge\\..*|tool\\..*\\.failed|web_search\\.exa_stream\\..*|vision_llm\\..*|search_node\\.declined_tool`"
         }

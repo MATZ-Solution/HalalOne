@@ -1,14 +1,4 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_LOKI",
-      "label": "Loki",
-      "description": "The Loki datasource holding halalify-backend logs",
-      "type": "datasource",
-      "pluginId": "loki",
-      "pluginName": "Loki"
-    }
-  ],
   "__requires": [
     { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
     { "type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0" },
@@ -51,7 +41,7 @@
       "type": "stat",
       "title": "Users throttled",
       "description": "How many times someone was asked to slow down, and when. Occasional is fine; a sustained line means limits are too tight or someone is hammering the app.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -68,7 +58,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "throttled",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`ratelimit.rejected` [$__interval]))"
@@ -80,7 +70,7 @@
       "type": "stat",
       "title": "Turned away (app full)",
       "description": "The app hit its total connection limit and refused someone outright. The serious one - real users could not get in at all.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -97,7 +87,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "turned away",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`ws.connection.rejected` [$__interval]))"
@@ -109,7 +99,7 @@
       "type": "stat",
       "title": "Failed to save",
       "description": "A chat message, session context or summary failed to save. Users lose data silently, so any number here matters.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -126,7 +116,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "save failures",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`.*persist_failed|ws\\.session_context\\.load_failed|compaction\\.failed` [$__interval]))"
@@ -138,7 +128,7 @@
       "type": "stat",
       "title": "Connections opened",
       "description": "How many times a browser connected to the chat, and when.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 4 },
       "options": {
         "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
@@ -148,7 +138,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "opened",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`ws.connection.opened` [$__interval]))"
@@ -161,7 +151,7 @@
       "type": "timeseries",
       "title": "Throttling over time, by reason",
       "description": "When users were throttled and why. Bars stack, so total height is all throttling in that period. A red global_llm band is the one that matters - it means every user was affected, not just one.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 9 },
       "fieldConfig": {
         "defaults": {
@@ -181,7 +171,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{kind}}",
           "expr": "sum by (kind) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", kind=\"kind\" | event=`ratelimit.rejected` [$__interval]))"
@@ -193,7 +183,7 @@
       "type": "piechart",
       "title": "Throttling by reason",
       "description": "Share of throttling by cause. Mostly user_msg_rate means clients are chatty; mostly global_llm means the whole app is at its AI budget ceiling.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 8, "x": 16, "y": 9 },
       "options": {
         "pieType": "donut",
@@ -206,7 +196,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{kind}}",
           "expr": "sum by (kind) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", kind=\"kind\" | event=`ratelimit.rejected` [$__range]))"
@@ -219,7 +209,7 @@
       "type": "timeseries",
       "title": "Connections and disconnects",
       "description": "Opened and closed should track each other closely - every connection that opens should eventually close. A persistent gap means connections are being held open and not released, which eventually exhausts the connection cap.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 16, "x": 0, "y": 18 },
       "fieldConfig": {
         "defaults": {
@@ -239,21 +229,21 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "opened",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`ws.connection.opened` [$__interval]))"
         },
         {
           "refId": "B",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "closed",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`ws.connection.closed` [$__interval]))"
         },
         {
           "refId": "C",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "disconnected",
           "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`ws.disconnected` [$__interval]))"
@@ -265,7 +255,7 @@
       "type": "table",
       "title": "Most throttled users",
       "description": "Who is hitting the limits, with a bar for comparison. One user dominating this list is either abusing the service or has a client stuck retrying in a loop.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 8, "x": 16, "y": 18 },
       "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false, "reducer": ["sum"], "fields": "" } },
       "fieldConfig": {
@@ -292,7 +282,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{user_id}}",
           "expr": "topk(10, sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`ratelimit.rejected` | user_id != `` [$__range])))"
@@ -305,7 +295,7 @@
       "type": "timeseries",
       "title": "Save failures over time, by kind",
       "description": "Which piece of data failed to persist and when. ws.user_message.persist_failed means a user's own message was lost; session_context.load_failed means an existing conversation could not be read back.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 27 },
       "fieldConfig": {
         "defaults": {
@@ -322,7 +312,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{event}}",
           "expr": "sum by (event) (count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`.*persist_failed|ws\\.session_context\\.load_failed|compaction\\.failed` [$__interval]))"
@@ -335,7 +325,7 @@
       "type": "logs",
       "title": "Recent throttling and save failures - the actual log lines",
       "description": "The raw records behind the charts above, newest first. Click a line to expand it and see which user and session it belongs to.",
-      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "datasource": { "type": "loki", "uid": "loki-halalone" },
       "gridPos": { "h": 11, "w": 24, "x": 0, "y": 36 },
       "options": {
         "showTime": true, "showLabels": false, "showCommonLabels": false,
@@ -345,7 +335,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "expr": "{job=\"halalify-backend\"} | json event=\"event\" | event=~`ratelimit\\.rejected|ws\\.connection\\.rejected|.*persist_failed|ws\\.session_context\\.load_failed|compaction\\.failed`"
         }
