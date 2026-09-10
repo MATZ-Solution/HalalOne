@@ -52,7 +52,7 @@
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
-          "expr": "count(sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [5m])))"
+          "expr": "count(sum by (user_id) (count_over_time({job=\"vps_backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [5m])))"
         }
       ]
     },
@@ -73,7 +73,7 @@
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
-          "expr": "count(sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [$__range])))"
+          "expr": "count(sum by (user_id) (count_over_time({job=\"vps_backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [$__range])))"
         }
       ]
     },
@@ -95,7 +95,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "new conversations",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`session_created` [$__interval]))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`session_created` [$__interval]))"
         }
       ]
     },
@@ -116,7 +116,7 @@
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=`ws.prompt` [$__range])) / count(sum by (session_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\", session_id=\"session_id\" | event=`process.end` | action=`ws.prompt` | session_id != `` [$__range])))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=`ws.prompt` [$__range])) / count(sum by (session_id) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\", session_id=\"session_id\" | event=`process.end` | action=`ws.prompt` | session_id != `` [$__range])))"
         }
       ]
     },
@@ -149,7 +149,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{action}}",
-          "expr": "sum by (action) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__interval]))"
+          "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__interval]))"
         }
       ]
     },
@@ -174,7 +174,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{action}}",
-          "expr": "sum by (action) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__range]))"
+          "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__range]))"
         }
       ]
     },
@@ -214,7 +214,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{user_id}}",
-          "expr": "topk(10, sum by (user_id) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [$__range])))"
+          "expr": "topk(10, sum by (user_id) (count_over_time({job=\"vps_backend\"} | json event=\"event\", user_id=\"user_id\" | event=`process.end` | user_id != `` [$__range])))"
         }
       ]
     },
@@ -246,21 +246,21 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "started",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`session_created` [$__interval]))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`session_created` [$__interval]))"
         },
         {
           "refId": "B",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "deleted",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=`ws.delete_session` [$__interval]))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` | action=`ws.delete_session` [$__interval]))"
         },
         {
           "refId": "C",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "summarised",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`compaction.folded` [$__interval]))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`compaction.folded` [$__interval]))"
         }
       ]
     },
@@ -289,7 +289,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{event}}",
-          "expr": "sum by (event) (count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=~`ws\\.auth\\.failed|http\\.extract_image\\.auth_failed` [$__interval]))"
+          "expr": "sum by (event) (count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=~`ws\\.auth\\.failed|http\\.extract_image\\.auth_failed` [$__interval]))"
         }
       ]
     }

@@ -54,7 +54,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "requests",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`process.end` [$__interval]))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`process.end` [$__interval]))"
         }
       ]
     },
@@ -82,7 +82,7 @@
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
-          "expr": "100 * ((sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`success` [$__range])) or vector(0)) / sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\" | event=`process.end` [$__range])))"
+          "expr": "100 * ((sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`success` [$__range])) or vector(0)) / sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`process.end` [$__range])))"
         }
       ]
     },
@@ -111,7 +111,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "failures",
-          "expr": "sum(count_over_time({job=\"halalify-backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`error` [$__interval]))"
+          "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`error` [$__interval]))"
         }
       ]
     },
@@ -140,7 +140,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "p95",
-          "expr": "quantile_over_time(0.95, {job=\"halalify-backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
+          "expr": "quantile_over_time(0.95, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         }
       ]
     },
@@ -174,7 +174,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{action}}",
-          "expr": "sum by (action) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__interval]))"
+          "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__interval]))"
         }
       ]
     },
@@ -199,7 +199,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{action}}",
-          "expr": "sum by (action) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__range]))"
+          "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__range]))"
         }
       ]
     },
@@ -232,21 +232,21 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "typical (p50)",
-          "expr": "quantile_over_time(0.50, {job=\"halalify-backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
+          "expr": "quantile_over_time(0.50, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         },
         {
           "refId": "B",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "slow (p95)",
-          "expr": "quantile_over_time(0.95, {job=\"halalify-backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
+          "expr": "quantile_over_time(0.95, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         },
         {
           "refId": "C",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "worst (p99)",
-          "expr": "quantile_over_time(0.99, {job=\"halalify-backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
+          "expr": "quantile_over_time(0.99, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         }
       ]
     },
@@ -274,7 +274,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{action}}",
-          "expr": "quantile_over_time(0.95, {job=\"halalify-backend\"} | json event=\"event\", action=\"action\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (action)"
+          "expr": "quantile_over_time(0.95, {job=\"vps_backend\"} | json event=\"event\", action=\"action\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (action)"
         }
       ]
     },
@@ -303,7 +303,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
           "legendFormat": "{{error_type}}",
-          "expr": "sum by (error_type) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", status=\"status\", error_type=\"error_type\" | event=`process.end` | status=`error` [$__interval]))"
+          "expr": "sum by (error_type) (count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\", error_type=\"error_type\" | event=`process.end` | status=`error` [$__interval]))"
         }
       ]
     },
@@ -328,7 +328,7 @@
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "instant",
           "legendFormat": "{{action}}",
-          "expr": "sum by (action) (count_over_time({job=\"halalify-backend\"} | json event=\"event\", status=\"status\", action=\"action\" | event=`process.end` | status=`error` [$__range]))"
+          "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\", action=\"action\" | event=`process.end` | status=`error` [$__range]))"
         }
       ]
     },
@@ -355,7 +355,7 @@
           "refId": "A",
           "datasource": { "type": "loki", "uid": "loki-halalone" },
           "queryType": "range",
-          "expr": "{job=\"halalify-backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`error`"
+          "expr": "{job=\"vps_backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`error`"
         }
       ]
     }
