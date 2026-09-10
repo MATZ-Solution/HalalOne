@@ -6,6 +6,7 @@ import asyncio
 import chat_store
 import session_state
 from log.logger import log
+from contextlib import aclosing
 from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph import StateGraph, START, END
@@ -248,7 +249,6 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
     log.info("compaction.folded", session_id=session_id, folded=len(fold), kept=len(kept), covered_ids=len(new_ids))
     return new_summary, kept, True
 
-from contextlib import aclosing
 async def stream_agent(query: str, conversation_history: list):
     if not query:
         # Carries "type" like every other event this generator yields, so a client

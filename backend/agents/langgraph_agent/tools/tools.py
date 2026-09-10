@@ -8,7 +8,13 @@ from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
 from collection.search.search_collection import search_collection
 from ..utils.utils import KEYWORD_FIELD_ORDER, COLLECTION, build_filter_string
-from ..models.models import KeywordFilterInput, KeywordArgs, FilterArgs, SemanticFilterInput, WebSearchInput
+from ..models.models import (
+    KeywordFilterInput,
+    KeywordArgs,
+    FilterArgs,
+    SemanticFilterInput,
+    WebSearchInput,
+)
 
 NARROW_KEYWORD_LIMIT = 250
 FINAL_KEYWORD_LIMIT = 10
@@ -16,6 +22,7 @@ FINAL_KEYWORD_LIMIT = 10
 K = 8
 FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
+
 
 @tool(args_schema=KeywordFilterInput)
 def KeywordFilterSearch(
@@ -84,9 +91,11 @@ def KeywordFilterSearch(
 
     return documents
 
-@tool(args_schema = SemanticFilterInput)
-def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
 
+@tool(args_schema=SemanticFilterInput)
+def SemanticFilterSearch(
+    semantic_query: str, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by semantic/vector similarity. USE THIS only when the
     query is conceptual or descriptive with NO specific product/brand named — e.g.
     "a calcium-rich snack for children", "natural red food colouring", "good for
@@ -128,7 +137,9 @@ def SemanticFilterSearch(semantic_query: str, filter_args: Optional[FilterArgs] 
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
     except Exception as e:
-        log.error("tool.semantic_search.failed", error=str(e), error_type=type(e).__name__)
+        log.error(
+            "tool.semantic_search.failed", error=str(e), error_type=type(e).__name__
+        )
         return []
 
 
@@ -157,13 +168,15 @@ def WebSearch(query: str) -> List[Dict]:
             if etype == "results" and writer:
                 # Emit each source as a live loading message.
                 for r in event.get("results", []):
-                    writer({
-                        "type": "web_source",
-                        "url": r.get("url"),
-                        "title": r.get("title"),
-                        "favicon": r.get("favicon"),
-                        "highlights": r.get("highlights") or [],
-                    })
+                    writer(
+                        {
+                            "type": "web_source",
+                            "url": r.get("url"),
+                            "title": r.get("title"),
+                            "favicon": r.get("favicon"),
+                            "highlights": r.get("highlights") or [],
+                        }
+                    )
             elif etype == "done":
                 output = event.get("output") or {}
                 product = output.get("content")
@@ -180,7 +193,3 @@ def WebSearch(query: str) -> List[Dict]:
     product["verified"] = False
     product["grounding"] = grounding
     return [product]
-
-
-results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
-print("Web search results", results)
