@@ -104,7 +104,6 @@ class SelectedProducts(BaseModel):
         ),
     )
 
-
 class JudgeVerdict(BaseModel):
     """LLM-as-judge output: which candidate products exactly match the user's ask.
     The matched ids are validated against the candidate pool in judge_node."""
@@ -134,7 +133,6 @@ class FilterArgs(BaseModel):
     category_l1: Optional[str] = None
     category_l2: Optional[str] = None
     halal_status: Optional[Literal["Halal", "Haram", "Haraam", "Mushbooh"]] = None
-    
     # List fields. Like the string fields above these default to None, meaning "the LLM
     # did not supply this filter" — build_filter_string and KeywordFilterSearch both skip
     # falsy values, so None and [] are equivalent downstream. Consumers reading these
