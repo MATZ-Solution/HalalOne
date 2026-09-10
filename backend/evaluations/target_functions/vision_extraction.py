@@ -27,14 +27,17 @@ def get_image_data_url(image_path: str) -> str:
     return f"data:{mime_type};base64,{b64_str}"
 
 
-async def run_vision_extraction(inputs: dict[str, Any]) -> dict[str, Any]:
+async def run_vision_extraction(
+    inputs: dict[str, Any], model_preference: str | None = None
+) -> dict[str, Any]:
     """Target function for evaluating the vision extraction pipeline.
 
     Accepts:
         inputs: {
             "image_url": str (optional base64 or remote URL),
             "image_path": str (local path to image),
-            "image_filename": str
+            "image_filename": str,
+            "model_preference": str (optional)
         }
     Returns:
         Extracted product schema dict from vision_llm
@@ -46,5 +49,21 @@ async def run_vision_extraction(inputs: dict[str, Any]) -> dict[str, Any]:
     if not image_url:
         return {"error": "No image_url or valid image_path found in inputs"}
 
-    extracted_result = await invoke_llm_with_image(image_url)
+    pref = model_preference or inputs.get("model_preference")
+    extracted_result = await invoke_llm_with_image(image_url, model_preference=pref)
     return extracted_result
+
+
+async def run_vision_extraction_primary(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Target function targeting specifically primary_vlm (glm-5p3-flash)."""
+    return await run_vision_extraction(inputs, model_preference="primary_vlm")
+
+
+async def run_vision_extraction_secondary(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Target function targeting specifically seconday_vlm (muse-glimmer-30b)."""
+    return await run_vision_extraction(inputs, model_preference="seconday_vlm")
+
+
+async def run_vision_extraction_tertiary(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Target function targeting specifically tertiary_vlm (deepseek-v4-flash-vision-exp)."""
+    return await run_vision_extraction(inputs, model_preference="tertiary_vlm")

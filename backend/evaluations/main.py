@@ -69,7 +69,12 @@ from evaluations.target_functions.search_node_args import run_search_node_args
 
 # Target Functions
 from evaluations.target_functions.search_trajectory import run_search_node
-from evaluations.target_functions.vision_extraction import run_vision_extraction
+from evaluations.target_functions.vision_extraction import (
+    run_vision_extraction,
+    run_vision_extraction_primary,
+    run_vision_extraction_secondary,
+    run_vision_extraction_tertiary,
+)
 
 
 # Evaluates Node 1 — intent classification: does the agent route each prompt to the correct branch (search_node vs response_node)?
@@ -213,14 +218,63 @@ async def run_custom_product_evaluation():
 
 # Evaluates Vision Multimodal Extraction on 15 Product Images (Base64 / Image URLs)
 async def run_vision_extraction_evaluation():
+    """Evaluates the composite fallback chain."""
     client = get_langsmith_client()
     return await client.aevaluate(
         run_vision_extraction,
         data=vision_product_dataset_name,
         evaluators=[vision_extraction_evaluator],
-        experiment_prefix="experiment-halal-one-vision-product-extraction 1.0",
+        experiment_prefix="experiment-halal-one-vision-fallback-chain 1.0",
         max_concurrency=2,
     )
+
+
+async def run_vision_extraction_evaluation_primary():
+    """Evaluates Primary VLM (glm-5p3-flash) in isolation."""
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_vision_extraction_primary,
+        data=vision_product_dataset_name,
+        evaluators=[vision_extraction_evaluator],
+        experiment_prefix="experiment-halal-one-vision-primary-glm 1.0",
+        max_concurrency=2,
+    )
+
+
+async def run_vision_extraction_evaluation_secondary():
+    """Evaluates Secondary VLM (muse-glimmer-30b) in isolation."""
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_vision_extraction_secondary,
+        data=vision_product_dataset_name,
+        evaluators=[vision_extraction_evaluator],
+        experiment_prefix="experiment-halal-one-vision-secondary-muse 1.0",
+        max_concurrency=2,
+    )
+
+
+async def run_vision_extraction_evaluation_tertiary():
+    """Evaluates Tertiary VLM (deepseek-v4-flash-vision-exp) in isolation."""
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_vision_extraction_tertiary,
+        data=vision_product_dataset_name,
+        evaluators=[vision_extraction_evaluator],
+        experiment_prefix="experiment-halal-one-vision-tertiary-deepseek 1.0",
+        max_concurrency=2,
+    )
+
+
+async def run_all_vision_evaluations():
+    """Runs all 3 VLMs (Primary, Secondary, Tertiary) plus the Fallback Chain sequentially into LangSmith."""
+    print("\n>>> [1/4] Uploading & Evaluating Primary VLM (GLM)...")
+    await run_vision_extraction_evaluation_primary()
+    print("\n>>> [2/4] Uploading & Evaluating Secondary VLM (Muse Glimmer)...")
+    await run_vision_extraction_evaluation_secondary()
+    print("\n>>> [3/4] Uploading & Evaluating Tertiary VLM (DeepSeek)...")
+    await run_vision_extraction_evaluation_tertiary()
+    print("\n>>> [4/4] Uploading & Evaluating Production Fallback Chain...")
+    await run_vision_extraction_evaluation()
 
 
 # Uncomment the evaluation you want to run:
@@ -233,4 +287,20 @@ async def run_vision_extraction_evaluation():
 # asyncio.run(run_product_only_detection_evaluation())
 # asyncio.run(run_combined_product_detection_evaluation())
 # asyncio.run(run_custom_product_evaluation())
-asyncio.run(run_vision_extraction_evaluation())
+
+if __name__ == "__main__":
+    # --- Vision Evaluations for LangSmith ---
+    # Option A: Run ALL 3 VLMs + Fallback Chain into LangSmith:
+    # asyncio.run(run_all_vision_evaluations())
+
+    # Option B: Run Primary VLM:
+    # asyncio.run(run_vision_extraction_evaluation_primary())
+
+    # Option C: Run Secondary VLM:
+    # asyncio.run(run_vision_extraction_evaluation_secondary())
+
+    # Option D: Run Tertiary VLM:
+    # asyncio.run(run_vision_extraction_evaluation_tertiary())
+
+    # Option E: Run Fallback Chain (All Models Together):
+    asyncio.run(run_vision_extraction_evaluation())
