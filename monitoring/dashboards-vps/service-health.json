@@ -1,24 +1,75 @@
 {
   "__requires": [
-    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
-    { "type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0" },
-    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
-    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
-    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" },
-    { "type": "panel", "id": "piechart", "name": "Pie chart", "version": "" },
-    { "type": "panel", "id": "logs", "name": "Logs", "version": "" },
-    { "type": "panel", "id": "text", "name": "Text", "version": "" }
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "loki",
+      "name": "Loki",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "gauge",
+      "name": "Gauge",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "piechart",
+      "name": "Pie chart",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "logs",
+      "name": "Logs",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "text",
+      "name": "Text",
+      "version": ""
+    }
   ],
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "description": "Is the app up, fast and error-free? Sections 2, 3 and 4 of the Dashboard Metrics Reference.",
   "editable": true,
   "graphTooltip": 1,
   "links": [],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["halalone", "logs", "service-health"],
-  "templating": { "list": [] },
-  "time": { "from": "now-24h", "to": "now" },
+  "tags": [
+    "halalone",
+    "logs",
+    "service-health"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
   "title": "HalalOne - Service Health",
   "uid": "halalone-service-health",
@@ -29,29 +80,70 @@
       "type": "text",
       "title": "",
       "transparent": true,
-      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "options": {
         "mode": "markdown",
         "content": "### Service Health &nbsp;·&nbsp; is the app working, and is it fast?\nThe four tiles below are the summary. Every chart under them explains one of those numbers in more detail. Hover any chart for exact values; the legend tables show totals per series. **An empty failures chart is good news.**"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
       }
     },
-
     {
       "id": 1,
       "type": "stat",
       "title": "Requests handled",
       "description": "Total requests the backend completed in the selected window. The graph behind the number shows when they happened, so you can see quiet and busy periods at a glance.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 3 },
-      "options": {
-        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
       },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" }, "noValue": "0" }, "overrides": [] },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 3
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value",
+        "orientation": "auto",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "noValue": "0",
+          "displayName": "Requests handled"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "requests",
           "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`process.end` [$__interval]))"
@@ -63,24 +155,66 @@
       "type": "gauge",
       "title": "Success ratio",
       "description": "Percentage of requests that finished successfully. The coloured arc shows where you sit against the targets: green above 99%, amber 95-99%, red below 95%.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 3 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 3
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "showThresholdLabels": true, "showThresholdMarkers": true, "minVizWidth": 75, "minVizHeight": 75
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true,
+        "minVizWidth": 75,
+        "minVizHeight": 75
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "decimals": 1, "min": 0, "max": 100,
-          "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 95 }, { "color": "green", "value": 99 } ] }
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "displayName": "Success ratio"
         },
         "overrides": []
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "instant",
           "expr": "100 * ((sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`success` [$__range])) or vector(0)) / sum(count_over_time({job=\"vps_backend\"} | json event=\"event\" | event=`process.end` [$__range])))"
         }
@@ -91,24 +225,62 @@
       "type": "stat",
       "title": "Failed requests",
       "description": "How many requests errored, and the error rate as a percentage. The graph shows when the failures clustered.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 3 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 3
+      },
       "options": {
-        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value",
+        "orientation": "auto",
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short", "decimals": 0, "noValue": "0",
-          "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "displayName": "Failed requests"
         },
         "overrides": []
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "failures",
           "expr": "sum(count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`error` [$__interval]))"
@@ -120,58 +292,132 @@
       "type": "stat",
       "title": "Response time (p95)",
       "description": "95 out of every 100 requests finished faster than this. Chat prompts run the whole AI agent, so several seconds is normal here.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 3 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 3
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "orientation": "auto", "justifyMode": "auto"
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value",
+        "orientation": "auto",
+        "justifyMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms", "decimals": 0, "noValue": "0",
-          "color": { "mode": "thresholds" },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 8000 }, { "color": "red", "value": 15000 } ] }
+          "unit": "ms",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 8000
+              },
+              {
+                "color": "red",
+                "value": 15000
+              }
+            ]
+          },
+          "displayName": "Response time (p95)"
         },
         "overrides": []
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "p95",
           "expr": "quantile_over_time(0.95, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         }
       ]
     },
-
     {
       "id": 5,
       "type": "timeseries",
       "title": "Traffic over time, split by feature",
       "description": "Filled bands stacked on top of each other - total height is overall traffic, each band is one endpoint. The legend on the right lists each feature with its total and peak, so you get the numbers without hovering.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 8 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 8
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "short", "min": 0, "decimals": 0,
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
           "custom": {
-            "drawStyle": "line", "lineWidth": 1, "fillOpacity": 45, "showPoints": "never",
-            "spanNulls": false, "lineInterpolation": "smooth",
-            "stacking": { "mode": "normal", "group": "A" },
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 45,
+            "showPoints": "never",
+            "spanNulls": false,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
             "gradientMode": "opacity"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["sum", "max"], "sortBy": "Total", "sortDesc": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "{{action}}",
           "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__interval]))"
@@ -183,67 +429,184 @@
       "type": "piechart",
       "title": "Share of traffic",
       "description": "What proportion of all requests each feature accounts for. The legend gives both the count and the percentage.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 8 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
       "options": {
         "pieType": "donut",
-        "displayLabels": ["percent"],
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "values": ["value", "percent"] },
-        "tooltip": { "mode": "single", "sort": "none" }
+        "displayLabels": [
+          "percent"
+        ],
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
       },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "instant",
           "legendFormat": "{{action}}",
           "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", action=\"action\" | event=`process.end` [$__range]))"
         }
       ]
     },
-
     {
       "id": 7,
       "type": "timeseries",
       "title": "Response time trend (p50 / p95 / p99)",
       "description": "Typical, slow and worst-case response times over time. Three shades of one colour, light to dark. A widening gap between the lines means the experience is becoming uneven - most requests fine, some very slow. The legend shows the average and worst value for each.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 17 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 17
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "auto", "pointSize": 6, "spanNulls": true, "lineInterpolation": "smooth" }
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 6,
+            "spanNulls": true,
+            "lineInterpolation": "smooth"
+          }
         },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "typical (p50)" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "super-light-blue" } }] },
-          { "matcher": { "id": "byName", "options": "slow (p95)" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }] },
-          { "matcher": { "id": "byName", "options": "worst (p99)" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-blue" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "typical (p50)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "super-light-blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "slow (p95)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "worst (p99)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-blue"
+                }
+              }
+            ]
+          }
         ]
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "typical (p50)",
           "expr": "quantile_over_time(0.50, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         },
         {
           "refId": "B",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "slow (p95)",
           "expr": "quantile_over_time(0.95, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
         },
         {
           "refId": "C",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "worst (p99)",
           "expr": "quantile_over_time(0.99, {job=\"vps_backend\"} | json event=\"event\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (job)"
@@ -255,52 +618,120 @@
       "type": "timeseries",
       "title": "Response time per feature (p95)",
       "description": "How slow each endpoint is, over time. ws.prompt runs the full AI agent so it is expected to sit well above the rest; the read endpoints should stay near the bottom.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 17 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "auto", "pointSize": 6, "spanNulls": true, "lineInterpolation": "smooth" }
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "pointSize": 6,
+            "spanNulls": true,
+            "lineInterpolation": "smooth"
+          }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["mean", "max"], "sortBy": "Max", "sortDesc": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "{{action}}",
           "expr": "quantile_over_time(0.95, {job=\"vps_backend\"} | json event=\"event\", action=\"action\", duration_ms=\"duration_ms\" | event=`process.end` | unwrap duration_ms [$__interval]) by (action)"
         }
       ]
     },
-
     {
       "id": 9,
       "type": "timeseries",
       "title": "Failures over time, by kind of error",
       "description": "When requests failed and what kind of error it was. Bars stack, so total height is all failures in that period. Empty means nothing broke.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 26 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 26
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "short", "min": 0, "decimals": 0,
-          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 85, "showPoints": "never", "barWidthFactor": 0.8, "barAlignment": 0, "stacking": { "mode": "normal", "group": "A" } }
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 85,
+            "showPoints": "never",
+            "barWidthFactor": 0.8,
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["sum"], "sortBy": "Total", "sortDesc": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ],
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "legendFormat": "{{error_type}}",
           "expr": "sum by (error_type) (count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\", error_type=\"error_type\" | event=`process.end` | status=`error` [$__interval]))"
@@ -312,34 +743,81 @@
       "type": "piechart",
       "title": "Which feature is failing",
       "description": "Failures split by endpoint. Tells you which part of the app is broken, not just that something is.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 26 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
       "options": {
         "pieType": "donut",
-        "displayLabels": ["percent"],
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "values": ["value", "percent"] },
-        "tooltip": { "mode": "single", "sort": "none" }
+        "displayLabels": [
+          "percent"
+        ],
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
       },
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "palette-classic" }, "noValue": "No failures - nothing to show" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "No failures - nothing to show"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "instant",
           "legendFormat": "{{action}}",
           "expr": "sum by (action) (count_over_time({job=\"vps_backend\"} | json event=\"event\", status=\"status\", action=\"action\" | event=`process.end` | status=`error` [$__range]))"
         }
       ]
     },
-
     {
       "id": 11,
       "type": "logs",
       "title": "Recent failures - the actual log lines",
       "description": "The raw error records behind the charts above, newest first. Click any line to expand it and see the request id, user, session and full stack trace.",
-      "datasource": { "type": "loki", "uid": "loki-halalone" },
-      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 35 },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-halalone"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
       "options": {
         "showTime": true,
         "showLabels": false,
@@ -353,11 +831,18 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki-halalone" },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-halalone"
+          },
           "queryType": "range",
           "expr": "{job=\"vps_backend\"} | json event=\"event\", status=\"status\" | event=`process.end` | status=`error`"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
     }
   ]
 }
