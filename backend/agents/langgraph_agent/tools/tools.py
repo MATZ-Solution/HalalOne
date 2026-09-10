@@ -18,8 +18,9 @@ FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
 
 @tool(args_schema=KeywordFilterInput)
-def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None) -> List[Dict]:
-
+def KeywordFilterSearch(
+    keyword_args: Optional[KeywordArgs] = None, filter_args: Optional[FilterArgs] = None
+) -> List[Dict]:
     """Search halal products by keyword. USE THIS when the query names a specific
     product/ingredient, brand/company, or when the query is only exact filters (category, halal status, cert body,
     location, marketplace, barcode, etc.).
@@ -32,8 +33,7 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
         cert_bodies, cert_numbers, fda_numbers, barcodes, marketplace). Pass null if none.
     """
     active_filters = {
-        k: v for k, v in (dict(filter_args) if filter_args else {}).items()
-        if v
+        k: v for k, v in (dict(filter_args) if filter_args else {}).items() if v
     }
     # keyword_args is validated against KeywordArgs, so it arrives as a model (or a
     # dict when invoked directly). Normalise to a plain dict — dict(model) works on a
@@ -76,7 +76,9 @@ def KeywordFilterSearch(keyword_args: Optional[KeywordArgs] = None, filter_args:
             return []
         # Narrow the next field's search to what this one matched. A document missing
         # canonical_id is skipped instead of raising KeyError.
-        matched_ids = [doc["canonical_id"] for doc in documents if doc.get("canonical_id")]
+        matched_ids = [
+            doc["canonical_id"] for doc in documents if doc.get("canonical_id")
+        ]
         if matched_ids:
             active_filters["canonical_id"] = matched_ids
 
