@@ -15,6 +15,7 @@ import type { Product } from "@/types/product"
 import ProductDetailModal from "@/components/product/ProductDetailModal"
 import Markdown from "@/components/markdown/Markdown"
 import ImageExtractionDialog from "@/components/ImageExtractionDialog"
+import ImageUploadGuidanceDialog from "@/components/ImageUploadGuidanceDialog"
 import SearchResultsDialog from "@/components/SearchResultsDialog"
 import CompactionDialog from "@/components/CompactionDialog"
 
@@ -320,6 +321,7 @@ export default function Page() {
     const [isTextPresent, setIsTextPresent] = useState<boolean>(false)
     const [pendingImage, setPendingImage] = useState<AttachedImage | null>(null)
     const [dialogOpen, setDialogOpen] = useState<boolean>(false)
+    const [guidanceDialogOpen, setGuidanceDialogOpen] = useState<boolean>(false)
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
     const [toast, setToast] = useState<string | null>(null)
     const [showDisconnected, setShowDisconnected] = useState<boolean>(false)
@@ -539,11 +541,16 @@ export default function Page() {
         dispatch({ type: "send", message: { id: crypto.randomUUID(), role: "user", content: text }, phrase: pickPhrase() })
     }
 
-    const handleImageSelect = async (e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
+    const processSelectedFile = async (file: File) => {
         if (!file || !file.type.startsWith("image/")) return
         setPendingImage(await fileToAttachedImage(file))
+        setGuidanceDialogOpen(false)
         setDialogOpen(true)
+    }
+
+    const handleImageSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (file) await processSelectedFile(file)
         e.target.value = ""
     }
 
@@ -595,7 +602,7 @@ export default function Page() {
                 <button
                     type="button"
                     aria-label="Attach image"
-                    onClick={() => isConnected && !loading && !compactionBlocking && fileInputRef.current?.click()}
+                    onClick={() => isConnected && !loading && !compactionBlocking && setGuidanceDialogOpen(true)}
                     style={{ border: "none", background: "transparent", cursor: isConnected && !compactionBlocking ? "pointer" : "default", color: "var(--muted)", display: "flex", padding: 2, opacity: isConnected && !compactionBlocking ? 1 : 0.4 }}
                 >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" /><circle cx="8.5" cy="9.5" r="1.6" stroke="currentColor" strokeWidth="1.6" /><path d="m4 18 5-5 4 4 3-3 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -975,6 +982,23 @@ export default function Page() {
 
             {/* ---- modals + toast ---- */}
             <ProductDetailModal product={selectedProduct} onClose={() => setSelectedProduct(null)} />
+
+            <AnimatePresence>
+                {guidanceDialogOpen && (
+                    <ImageUploadGuidanceDialog
+                        key="image-guidance-dialog"
+                        theme="light"
+                        onProceedToUpload={() => {
+                            setGuidanceDialogOpen(false)
+                            fileInputRef.current?.click()
+                        }}
+                        onFileSelected={(file) => {
+                            processSelectedFile(file)
+                        }}
+                        onClose={() => setGuidanceDialogOpen(false)}
+                    />
+                )}
+            </AnimatePresence>
 
             <AnimatePresence>
                 {dialogOpen && pendingImage && (
