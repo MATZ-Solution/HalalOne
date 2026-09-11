@@ -1,5 +1,6 @@
 from rapidfuzz import fuzz
 from typing import Optional
+from langsmith import traceable
 from ..models.models import FilterArgs
 
 COLLECTION = "halal_products"
@@ -19,9 +20,10 @@ FILTER_FIELDS = {
 WEB_FILTER_FIELDS = {"barcodes", "fda_numbers", "cert_numbers"}
 
 # Tool-call budgets: keyword-first can climb the full ladder
-# (keyword -> web -> semantic x2); a semantic-first query only runs semantic.
+# (keyword -> web -> semantic x2); semantic-first can retry semantic once then fall
+# back to web (semantic -> semantic|web -> web).
 MAX_KEYWORD_CALLS = 5
-MAX_SEMANTIC_CALLS = 2
+MAX_SEMANTIC_CALLS = 3
 
 KEYWORD = "KeywordFilterSearch"
 SEMANTIC = "SemanticFilterSearch"
@@ -203,7 +205,14 @@ def select_tools(first_tool: Optional[str], tools_called: list[str]) -> list[str
     if n == 0:
         return [KEYWORD, SEMANTIC]
     if first_tool == SEMANTIC:
-        return [SEMANTIC]
+        # Semantic-first ladder: retry semantic once, then fall back to web. Web runs
+        # at most once — once it has, only web is left; a 2nd semantic pass with no
+        # exact match forces web next.
+        if WEB in tools_called:
+            return [WEB]
+        if tools_called.count(SEMANTIC) >= 2:
+            return [WEB]
+        return [SEMANTIC, WEB]
     # Keyword-first ladder. Web may run at most once — once it has, only semantic
     # is left; until then keyword can be refined once (2nd call) before web.
     if WEB not in tools_called:
@@ -279,6 +288,7 @@ def _matches_filters(product: dict, active: dict, norm=None, skip_missing=False)
     return True
 
 
+@traceable
 def apply_filter_check(
     products: list[dict],
     filters: Optional[dict],

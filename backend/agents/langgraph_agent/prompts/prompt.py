@@ -162,23 +162,31 @@ SEARCH_ROUTING_RULES = """
 # first (unforced) call. Segments are numbered fresh each call for consistency.
 
 # --- KeywordFilterSearch selection (only when KEYWORD is bound) ---
-INSTR_KEYWORD_NAME = "Whenever a user gives a prompt, classify whether it contains a specific product name (not a category, type of food, brand, or company). The specific product name is the norm-name. When it's present, ALWAYS call the 'KeywordFilterSearch' tool. Call the tool even when only the norm-name is present, or when other details like filters or company/brand name(s) are present too."
+INSTR_KEYWORD_NAME = """Whenever a user gives a prompt, classify whether it contains a specific product/ingredient/additive name (not a category, type of food, brand, or company). The specific product/ingredient/additive name is the norm-name. When it's present, ALWAYS call the 'KeywordFilterSearch' tool. Call this tool STRICTLY when:
+    1. Only the norm-name is present,
+    2. Any other details like filters or company/brand name(s) are present too."""
 
 INSTR_KEYWORD_FILTERS_ONLY = "When ONLY filters are present in the query, ALWAYS call the 'KeywordFilterSearch' tool."
 
 # --- Keyword ↔ Semantic boundary (only when BOTH are bound) ---
-INSTR_KEYWORD_SEMANTIC_BOUNDARY = """When the norm-name is not present in the query and only a company/brand name(s) is present, either with or without filters, check whether there is any other detail present that can't be placed into the norm-name or any of the filter fields. If so, call the 'SemanticFilterSearch' tool and pass both the company/brand name(s) in the query parameter and any filters in their respective fields, if present. For example: "Are halal sausages from Red Meat Inc, sold in Germany, halal?" Here we have company = Red Meat Inc, sold-in = Germany, halal-status = Halal, but there's an extra detail, "sausages," which can't be placed into the norm-name or any of the filters. So call 'SemanticFilterSearch' with the query parameter "Red Meat Inc sausages" and the corresponding filters. When no other detail is present, call the 'KeywordFilterSearch' tool."""
+INSTR_KEYWORD_SEMANTIC_BOUNDARY = """When the norm-name is not present in the query and only a company/brand name(s) is present, either with or without filters, check whether there is any other detail present that can't be placed into the norm-name or any of the filter fields. If so, call the 'SemanticFilterSearch' tool: put the company/brand name(s) in BOTH the `query` parameter and the `companies` argument, and pass any filters in their respective fields. For example: "Are halal sausages from Red Meat Inc, sold in Germany, halal?" Here we have company = Red Meat Inc, sold-in = Germany, halal-status = Halal, but there's an extra detail, "sausages," which can't be placed into the norm-name or any of the filters. So call 'SemanticFilterSearch' with `query` = "Red Meat Inc sausages", `companies` = ["Red Meat Inc"], and the corresponding filters. When no other detail is present, call the 'KeywordFilterSearch' tool."""
 
 # --- SemanticFilterSearch selection (only when SEMANTIC is bound) ---
 INSTR_SEMANTIC = """When a user gives a prompt that contains semantic/conceptual/meaningful content and NO norm-name, ALWAYS call the 'SemanticFilterSearch' tool, regardless of what else is given. Examples: "Famous Middle Eastern cuisines in New York," "Food that is irresistible and yummy." Notice that there isn't any norm-name present — just a concept and some filters, like category-l1='Food' or sold-in='New York'. Whatever already appears in the filters should NEVER also appear in the query parameter — e.g., in "Famous cuisines in New York," "New York" is redundant since it's already captured in the filters."""
 
 # --- Intent / scope (only on the first, unforced call) ---
-INSTR_INTENT_SCOPE = """ALWAYS determine whether the user actually wants to search for a product or not. A prompt may contain a specific product name, brand/company name, or semantic content, but the user's intention might not be to search. For example: "Big Bay sauce sold in the UK is delicious." This is not a search intent, so don't call any tools. Similary a query such as "Are all chocolates halal?" is a query which do contain semantic content for you to search, but this does not carry an intention to search. The same goes for general halal-knowledge questions, which fall entirely outside your scope — e.g. "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?". These are general halal related questions and shouldn't initiate a tool call or search either. Your sole purpose and specialization is to help find halal products for users, so in all these cases be mindful of the user's intention and don't initiate a search/tool call. Rather, politely acknowledge their sentiment and redirect to your specific purpose in a creative way. Ask a follow-up question relevant to their query but focused towards product search."""
+INSTR_INTENT_SCOPE = """ALWAYS determine whether the user actually wants to search for a product or not. A prompt may contain a specific product name, brand/company name, or semantic content, but the user's intention might not be to search. For example: "Big Bay sauce sold in the UK is delicious." This is not a search intent, so don't call any tools.
+
+Decide search vs redirect by WHAT IS NAMED, not by the sentence shape — a yes/no "is X halal?" can still be a search:
+- If the message names a BRAND/COMPANY or a SPECIFIC PRODUCT, treat it as a SEARCH — even when phrased as "is X halal?". Examples that ARE searches: "is KitKat halal?" (specific product), "are Nestle chocolates halal?" (brand + a type → SemanticFilterSearch), "is Shan biryani masala halal?". Hand these to the tool-selection rules; do NOT redirect them.
+- Only redirect when NO brand and NO specific product is named — i.e. a bare type or a general halal-knowledge question. Examples that are NOT searches: "Are all chocolates halal?", "is burger halal?" (bare category, nothing specific), and knowledge questions like "What is halal?", "Why do Muslims eat halal food?", "How is halal different from haram?", "Why is pork haram?".
+
+For the redirect cases: these fall outside your scope, so don't initiate a search/tool call. Your sole purpose and specialization is to help find halal products for users, so politely acknowledge their sentiment and redirect to your specific purpose in a creative way. Ask a follow-up question relevant to their query but focused towards product search."""
 
 # --- Argument extraction (always) ---
-INSTR_NO_INFER = 'Never infer any tool argument unless it is explicitly mentioned by the user. Example: "Find me halal chocolates." Don\'t infer category-l1=Food or category-l2=Snacks & Confectionery. Just use what\'s explicitly given, and leave everything else as None.'
+INSTR_NO_INFER = "Never infer any tool argument unless it is explicitly mentioned by the user. Example: \"Find me halal chocolates from Mars.\" Don't infer category-l1=Food or category-l2=Snacks & Confectionery. Just use what's explicitly given, and leave everything else as None."
 
-INSTR_KEYWORD_WEB = "Whenever a keyword tool fails to return any results, always call either the `WebSearch` tool or the `KeywordFilterSearch` tool, depending on what tools are available."
+INSTR_KEYWORD_WEB = "A `WebSearch` tool is your fallback after the database tools return nothing — use it to look the product up on the web. If `WebSearch` is the ONLY tool available to you, calling it is OBLIGATORY: never answer without calling it."
 
 # --- Filter normalization (only when a filter-accepting tool is bound) ---
 INSTR_NORMALIZATION = """Normalize filter values before passing them to a tool.
@@ -398,6 +406,7 @@ Halal chocolates by Nestle.
 SemanticFilterSearch(
 {
     "query": "Nestle chocolates",
+    "companies": ["Nestle"],
     "filter_args":
         {
             "halal_status": "Halal"
@@ -421,6 +430,26 @@ SemanticFilterSearch(
         }
 }
 )
+
+Example 6:
+<User>
+something gentle for sensitive skin, Cosmetic category, Skin Care, halal, sold in Malaysia and Indonesia, certified by JAKIM and HFCE, retail.
+<Tool Call>
+SemanticFilterSearch(
+{
+    "query": "gentle products for sensitive skin",
+    "filter_args": 
+    {
+        "category_l1": "Cosmetic",
+        "category_l2": "Skin Care",
+        "halal_status": "Halal",
+        "sold_in": ["Malaysia", "Indonesia"],
+        "cert_bodies": ["JAKIM", "HFCE"],
+        "marketplace": ["Retail"],
+    },
+}
+)
+
 Note: In the above example we had an additional detail along with filters that neither fits in norm_name or company/brand names(s), so we choose to call `SemanticFilterSearch` and passed that addtional detail in the query parameter.
 
 """.strip()
@@ -556,14 +585,8 @@ Never show shellfish — permanent, all categories (husband's allergy). In Cardi
 
 def build_search_prompt(tool_names: list[str], allow_direct: bool = False) -> str:
     """Assemble the search-node system prompt for exactly the tools bound on this
-    call. SEARCH_PROMPT_BASE is a stable prefix (kept identical every call for prompt
-    caching); the instructions, product schema, canonical filter lists (CONTEXT), and
-    per-tool examples are appended AFTER it, gated to the tools in `tool_names`.
-    allow_direct adds the search-vs-direct routing block and the intent/scope rule for
-    the first (unforced) call, where the model may reply directly instead of searching.
-    (Persona lives in SEARCH_PROMPT_BASE, so it's identical on every call.)
-    Raises TypeError if tool_names isn't a list of strings — a bad caller is a bug,
-    not something to paper over with a silent toolless prompt."""
+    call."""
+
     if not isinstance(tool_names, list) or not all(
         isinstance(n, str) for n in tool_names
     ):
@@ -597,8 +620,7 @@ def build_search_prompt(tool_names: list[str], allow_direct: bool = False) -> st
         instr.append(INSTR_NORMALIZATION)
     instr.append(INSTR_SECURITY)
     parts.append(
-        "## INSTRUCTIONS\n\n"
-        + "\n\n".join(f"{i}. {t}" for i, t in enumerate(instr, 1))
+        "## INSTRUCTIONS\n\n" + "\n\n".join(f"{i}. {t}" for i, t in enumerate(instr, 1))
     )
 
     # Context: product schema + canonical filter lists — only for DB tools that

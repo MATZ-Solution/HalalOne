@@ -6,18 +6,19 @@ import asyncio
 import chat_store
 import session_state
 from log.logger import log
-from langchain.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.messages.utils import count_tokens_approximately
+from dotenv import load_dotenv
+from contextlib import aclosing
+from .LLMs.llm import summarizer_llm
+from .models.models import SearchAgentState
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import RetryPolicy, default_retry_on
-from .LLMs.llm import summarizer_llm
 from .prompts.prompt import SUMMARIZE_CONVERSATION_PROMPT
-from .models.models import SearchAgentState
+from langchain_core.messages.utils import count_tokens_approximately
+from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from .nodes.node import (
     search_node, tool_node, judge_node, orchestration_node,
     response_node, should_continue, default_error_handler,
 )
-from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
@@ -100,6 +101,9 @@ def _build_results(response: str, result: dict) -> dict:
         "matched": matched,
         "relevant": relevant,
         "documents": matched + relevant,
+        # Section tag for the matched bucket: "Matches" (semantic) or "Exact Matches"
+        # (keyword). Defaults for the error path, which has no label.
+        "match_label": result.get("match_label", "Exact Matches"),
     }
 
 
@@ -244,7 +248,6 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
     log.info("compaction.folded", session_id=session_id, folded=len(fold), kept=len(kept), covered_ids=len(new_ids))
     return new_summary, kept, True
 
-from contextlib import aclosing
 async def stream_agent(query: str, conversation_history: list):
     if not query:
         # Carries "type" like every other event this generator yields, so a client
