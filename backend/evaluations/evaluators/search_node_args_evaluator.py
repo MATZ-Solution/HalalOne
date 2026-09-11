@@ -1,5 +1,6 @@
 import os
 import json
+import unicodedata
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
@@ -75,13 +76,77 @@ def _exact(actual, expected):
     return str(actual) == str(expected)
 
 
+# Dropped outright rather than turned into a space, so "McDonald's" -> "mcdonalds"
+# instead of the stray-token "mcdonald s".
+_APOSTROPHES = "'’‘`´"
+
+
+def _normalize(value):
+    """Strip casing, accents and punctuation so surface spelling differences compare
+    equal. Non-ASCII letters are kept, so a CJK name survives."""
+    if value is None:
+        return ""
+    text = unicodedata.normalize("NFKD", str(value)).lower()
+    text = "".join(c for c in text if not unicodedata.combining(c) and c not in _APOSTROPHES)
+    text = "".join(c if (c.isalnum() or c.isspace()) else " " for c in text)
+    return " ".join(text.split())
+
+
+def _compact(value):
+    """Normalized form with spacing removed too, so "Coca-Cola" matches "cocacola"."""
+    return _normalize(value).replace(" ", "")
+
+
+def _values_equal(expected, actual):
+    """Equal under normalization, comparing both the spaced and the compact form.
+    Lists compare order-insensitively."""
+    to_list = lambda x: x if isinstance(x, list) else ([] if x is None else [x])
+    if isinstance(expected, list) or isinstance(actual, list):
+        a, b = to_list(expected), to_list(actual)
+        if len(a) != len(b):
+            return False
+        return (sorted(_normalize(v) for v in a) == sorted(_normalize(v) for v in b)
+                or sorted(_compact(v) for v in a) == sorted(_compact(v) for v in b))
+    return _normalize(expected) == _normalize(actual) or _compact(expected) == _compact(actual)
+
+
+def _keyword_args_equal(expected, actual):
+    """True when every keyword field the reference provides matches after
+    normalization. Only then can the LLM judge be skipped."""
+    return all(
+        _values_equal(expected.get(field), (actual or {}).get(field))
+        for field in ("norm_name", "companies")
+        if field in expected
+    )
+
+
 def _allowed_tools(reference):
     expected = reference.get("expected_tool")
     return expected if isinstance(expected, list) else [expected]
 
 
-def _searchable_text(outputs):
-    return json.dumps(outputs.get("args") or {}, ensure_ascii=False) + "\n" + (outputs.get("response") or "")
+def _forbidden_hits(outputs, reference, terms):
+    """Forbidden terms are about leakage into the FREE TEXT the model wrote, and about
+    filter values it invented. A term that the reference itself expects as a filter value
+    is legitimate there, so it only counts as a hit inside the text fields."""
+    args = outputs.get("args") or {}
+    keyword_args = _clean(args.get("keyword_args"))
+    text = " ".join([
+        str(keyword_args.get("norm_name") or ""),
+        " ".join(str(c) for c in (keyword_args.get("companies") or [])),
+        str(args.get("semantic_query") or ""),
+        outputs.get("response") or "",
+    ])
+    actual_filters = json.dumps(_clean(args.get("filter_args")), ensure_ascii=False)
+    expected_filters = json.dumps(_clean(reference.get("filter_args")), ensure_ascii=False)
+
+    hits = []
+    for term in terms:
+        if term in text:
+            hits.append(term)
+        elif term in actual_filters and term not in expected_filters:
+            hits.append(term)
+    return hits
 
 
 def _score(key, ok, comment=""):
@@ -130,8 +195,10 @@ def _grade_no_over_extraction(outputs, reference):
 
     problems = [f"{k} must not be set, got {actual[k]!r}" for k in forbidden_keys if k in actual]
 
-    text = _searchable_text(outputs)
-    problems += [f"forbidden term {t!r} appeared in the output" for t in forbidden_terms if t in text]
+    problems += [
+        f"forbidden term {t!r} appeared in the output"
+        for t in _forbidden_hits(outputs, reference, forbidden_terms)
+    ]
 
     expected_keyword = reference.get("keyword_args")
     produced_keyword = _clean((outputs.get("args") or {}).get("keyword_args"))
@@ -154,6 +221,14 @@ async def _grade_keyword_args(inputs, outputs, reference, errors):
         return None
     if not _clean(actual):
         return _score("keyword_args_correctness", False, f"expected {expected!r}, got nothing")
+
+    # Cheap path first: if the values agree once casing, accents and punctuation are
+    # removed, the answer is right and no model needs to be consulted.
+    if _keyword_args_equal(expected, actual):
+        return _score(
+            "keyword_args_correctness", True,
+            f"exact match after normalization (no LLM call): {json.dumps(_clean(actual), ensure_ascii=False)}",
+        )
 
     message = (
         f"USER QUESTION: {inputs.get('question', '')}\n"
@@ -181,6 +256,12 @@ async def _grade_semantic_query(inputs, outputs, reference, errors):
     reference_query = reference.get("semantic_query")
     if not reference_query:
         return _score("semantic_query_quality", True, f"no reference phrasing; produced {actual!r}")
+
+    if _values_equal(reference_query, actual):
+        return _score(
+            "semantic_query_quality", True,
+            f"exact match after normalization (no LLM call): {actual!r}",
+        )
 
     message = (
         f"USER QUESTION: {inputs.get('question', '')}\n"
