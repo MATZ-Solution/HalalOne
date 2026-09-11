@@ -226,3 +226,6 @@ def WebSearch(query: str) -> List[Dict]:
 
 # results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
 # print("Web search results", results)
+
+results = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": "E120"}})
+print(results)
