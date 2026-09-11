@@ -118,8 +118,7 @@ CANONICAL_LISTS = {
     "Mushbooh",
     "Haram",
     "Haraam",
-    "Halal",
-    "Unknown"
+    "Halal"
   ],
     "cert_bodies": [
     "HFCE",

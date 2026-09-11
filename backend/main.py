@@ -37,9 +37,17 @@ from langchain_core.messages.utils import count_tokens_approximately
 
 load_dotenv(override=True)
 
-# Base token count that triggers a compaction prompt. Effective trigger is this
-# value x (1 + declines), capped at 3x; after the 3rd decline it is forced.
-SUMMARY_TOKEN_THRESHOLD = int(os.getenv("SUMMARY_TOKEN_THRESHOLD", "3000"))
+# Base token count that triggers a compaction prompt (~30% of the model context).
+# Effective trigger is this value x (1 + declines), capped at 2x; the user may
+# decline once, and the second time compaction is forced (no prompt). At a 44k base
+# the forced ceiling is ~88k, which leaves ample room under the model context.
+SUMMARY_TOKEN_THRESHOLD = int(os.getenv("SUMMARY_TOKEN_THRESHOLD", "44000"))
+
+# After a fold, keep the most-recent whole turns that fit in this many tokens (a % of
+# the base threshold). Token-based (not a fixed turn count) so the kept tail — and thus
+# the margin below the trigger — stays stable regardless of how heavy recent turns are.
+SUMMARY_KEEP_PC = int(os.getenv("SUMMARY_KEEP_PC", "50"))
+SUMMARY_KEEP_TOKENS = int(SUMMARY_TOKEN_THRESHOLD * SUMMARY_KEEP_PC / 100)
 
 # User-facing compaction copy.
 COMPACTION_ASK_MSG = "Your conversation has hit the token limit. Compact it to a summary to keep chatting smoothly?"
@@ -282,7 +290,7 @@ async def _run_compaction(user_id: str, session_id: str) -> tuple[str, list[dict
     await save_compaction(session_id, {"phase": "compacting", "declines": 0, "pending": None, "message": COMPACTION_RUNNING_MSG})
     await publish_chunk(user_id, session_id, {"type": "compaction_running", "message": COMPACTION_RUNNING_MSG})
     try:
-        summary, kept, _did = await compact_session(session_id)
+        summary, kept, _did = await compact_session(session_id, SUMMARY_KEEP_TOKENS)
         await clear_compaction(session_id)
         await publish_chunk(user_id, session_id, {"type": "compaction_done"})
         return summary, kept
@@ -357,21 +365,23 @@ async def run_prompt_pipeline(session_id: str, user_id: str, prompt: str, image_
     history.append({"id": None, "role": "user", "content": prompt})
     conversation_history = _history_to_messages(history, summary)
 
-    # 2) Compaction gate. The effective trigger rises with each decline; after the
-    #    3rd decline it's forced (no prompt). Under the trigger, answer normally.
+    # 2) Compaction gate. The user may decline once (trigger rises to 2x); the second
+    #    time over the trigger it's forced (no prompt). Under the trigger, answer normally.
     declines = int(state.get("declines", 0))
-    effective_threshold = SUMMARY_TOKEN_THRESHOLD * min(1 + declines, 3)
+    effective_threshold = SUMMARY_TOKEN_THRESHOLD * min(1 + declines, 2)
     token_count = count_tokens_approximately(conversation_history)
 
     if token_count >= effective_threshold:
+        print("Current token count", token_count)
+        print("Effective token threshold", effective_threshold)
         # Both branches need the user turn durably in Valkey first: a fold reads
         # history from Valkey, and a paused turn must not lose the message.
         try:
             await persist_user_task
         except Exception as e:
             log.error("ws.user_message.persist_failed", error=str(e), error_type=type(e).__name__)
-        if declines >= 3:
-            # Forced: compact inline (same lease), then answer with summary + tail.
+        if declines >= 1:
+            # Forced after one decline: compact inline (same lease), then answer.
             summary, kept = await _run_compaction(user_id, session_id)
             conversation_history = _history_to_messages(kept, summary)
             await _stream_and_persist(user_id, session_id, prompt, conversation_history)
@@ -407,15 +417,16 @@ async def resume_after_confirm(session_id: str, user_id: str):
 
 
 async def resume_after_decline(session_id: str, user_id: str):
-    """User declined: raise the trigger (2x, then 3x, then forced next time) and
-    answer the paused prompt with the full, un-compacted context."""
+    """User declined: raise the trigger to 2x and answer the paused prompt with the
+    full, un-compacted context. Only one decline is allowed — the next time over the
+    (now 2x) trigger, compaction is forced (declines >= 1)."""
     state = await load_compaction(session_id)
     pending = state.get("pending")
     if not pending:
         await clear_compaction(session_id)
         await publish_chunk(user_id, session_id, {"type": "compaction_done"})
         return
-    declines = min(int(state.get("declines", 0)) + 1, 3)
+    declines = min(int(state.get("declines", 0)) + 1, 1)
     await save_compaction(session_id, {"phase": "idle", "declines": declines, "pending": None})
     await publish_chunk(user_id, session_id, {"type": "compaction_done"})
     summary, history = await _load_context(session_id, user_id)

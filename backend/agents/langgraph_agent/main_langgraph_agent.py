@@ -22,9 +22,38 @@ from .nodes.node import (
 
 load_dotenv(override=True)
 
-# Number of most-recent messages kept verbatim after a fold. N turns (a
-# user+assistant pair) => 2N messages. Read once at import.
-KEEP_MESSAGES = int(os.getenv("SUMMARY_KEEP_TURNS", "10")) * 2
+# Fallback keep budget (tokens) if a caller doesn't pass one. Normally main.py
+# passes SUMMARY_KEEP_TOKENS (a % of the compaction threshold).
+DEFAULT_KEEP_TOKENS = int(os.getenv("SUMMARY_KEEP_TOKENS", "20000"))
+
+
+def _msg_tokens(m: dict) -> int:
+    """Approx token count of one agent-history message."""
+    role = m.get("role")
+    lc = AIMessage(content=m.get("content", "")) if role == "assistant" else HumanMessage(content=m.get("content", ""))
+    return count_tokens_approximately([lc])
+
+
+def _split_by_token_budget(history: list[dict], budget: int) -> tuple[list[dict], list[dict]]:
+    """Split history into (fold, kept). Keeps the most-recent WHOLE turns whose token
+    sum stays within `budget`, folding the rest. A turn starts at a user message and
+    includes the assistant reply that follows. Rounds DOWN to a turn boundary; always
+    keeps at least the last turn even if it alone exceeds the budget (never truncates a
+    message); returns ([], history) when everything already fits (nothing to fold)."""
+    if not history:
+        return [], []
+    turn_starts = [i for i, m in enumerate(history) if m.get("role") == "user"]
+    if not turn_starts:
+        return [], list(history)  # malformed (no user msg): keep all, fold nothing
+    kept_start = turn_starts[-1]                      # last turn is always kept
+    running = sum(_msg_tokens(m) for m in history[kept_start:])
+    for ts in reversed(turn_starts[:-1]):
+        turn_toks = sum(_msg_tokens(m) for m in history[ts:kept_start])
+        if running + turn_toks > budget:
+            break                                     # round down: stop before it exceeds
+        running += turn_toks
+        kept_start = ts
+    return history[:kept_start], history[kept_start:]
 
 # Hard cap on the summarizer LLM call. A hang (as opposed to an error) would
 # otherwise leave the session stuck in the "compacting" state forever, since the
@@ -188,28 +217,28 @@ def context_token_count(summary: str, lc_messages: list) -> int:
     return count_tokens_approximately(msgs)
 
 
-async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
-    """Fold everything older than the last KEEP_MESSAGES into the rolling summary.
+async def compact_session(session_id: str, keep_token_budget: int = DEFAULT_KEEP_TOKENS) -> tuple[str, list[dict], bool]:
+    """Fold everything older than the recent verbatim tail into the rolling summary.
 
-    Reads the Valkey history (entries carry their DB message id) and the current
-    summary, summarizes the older slice, accumulates the covered message ids,
+    The tail is the most-recent WHOLE turns fitting within `keep_token_budget` tokens
+    (a % of the compaction threshold, passed by the caller) — so the kept size scales
+    with token weight, not a fixed message count, keeping a stable margin below the
+    trigger. Reads the Valkey history (entries carry their DB message id) and the
+    current summary, summarizes the older slice, accumulates the covered message ids,
     persists a new chat_summaries row, and updates the Valkey summary + trimmed
-    history. Returns (summary, kept_messages, did_compact). did_compact is False
-    when there was nothing to fold (history already <= KEEP_MESSAGES) — a benign
-    no-op; the caller just proceeds with the full context. Raises if the model
-    returned an empty summary so the caller can surface a failure and fall back.
+    history. Returns (summary, kept_messages, did_compact). did_compact is False when
+    everything already fits in the budget (nothing to fold) — a benign no-op. Raises
+    if the model returned an empty summary so the caller can surface a failure.
     """
     history = await session_state.load_history(session_id) or []
     summary_state = await session_state.load_summary(session_id) or {}
     old_summary = summary_state.get("summary", "")
     old_ids = summary_state.get("message_ids", [])
 
-    if len(history) <= KEEP_MESSAGES:
-        # Nothing older than the kept tail — can't reduce further.
+    fold, kept = _split_by_token_budget(history, keep_token_budget)
+    if not fold:
+        # Everything fits in the keep budget — can't reduce further.
         return old_summary, history, False
-
-    fold = history[:-KEEP_MESSAGES]
-    kept = history[-KEEP_MESSAGES:]
 
     # Bound the blocking LLM call: a hung summarizer would otherwise strand the
     # session in "compacting" indefinitely. On timeout, wait_for raises
@@ -245,7 +274,16 @@ async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
         await session_state.clear_summary(session_id)
         await session_state.clear_history(session_id)
 
-    log.info("compaction.folded", session_id=session_id, folded=len(fold), kept=len(kept), covered_ids=len(new_ids))
+    kept_turns = sum(1 for m in kept if m.get("role") == "user")
+    folded_turns = sum(1 for m in fold if m.get("role") == "user")
+    kept_tokens = sum(_msg_tokens(m) for m in kept)
+    log.info(
+        "compaction.folded", session_id=session_id,
+        kept_turns=kept_turns, folded_turns=folded_turns,
+        kept_msgs=len(kept), folded_msgs=len(fold),
+        kept_tokens=kept_tokens, keep_budget=keep_token_budget,
+        covered_ids=len(new_ids),
+    )
     return new_summary, kept, True
 
 async def stream_agent(query: str, conversation_history: list):

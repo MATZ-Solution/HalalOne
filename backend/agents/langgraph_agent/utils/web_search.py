@@ -86,7 +86,7 @@ _WEB_PRODUCT_SCHEMA = {
         "halal_status": {
             "type": "string",
             "description": "Halal status exactly as stated in the source",
-            "enum": ["Halal", "Haram", "Mushbooh", "Unknown"],
+            "enum": CANONICAL_LISTS["halal_status"],
         },
         "cert_bodies": _str_list(
             "Names of the organisations that certified the product as halal",
