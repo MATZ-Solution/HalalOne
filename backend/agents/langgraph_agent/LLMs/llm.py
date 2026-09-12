@@ -27,17 +27,6 @@ if not GROQ_API_KEY:
 if not CEREBRAS_API_KEY:
     raise ValueError("Invalid CEREBRAS API KEY")
 
-# if not AWS_BEARER_TOKEN_BEDROCK:
-#     raise ValueError("Invalid AWS API KEY")
-
-
-# extracter_llm = ChatBedrockConverse(
-#     api_key=AWS_BEARER_TOKEN_BEDROCK,
-#     region_name = "us-east-1",
-#     model_id="openai.gpt-oss-120b-1:0",
-#     temperature = 0,
-#     max_tokens=300
-# )
 
 extracter_llm = ChatGroq(
     api_key=GROQ_API_KEY, model="openai/gpt-oss-20b", temperature=0, max_tokens=300
