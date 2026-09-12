@@ -303,7 +303,7 @@ async def generate_title_description(prompt: str):
     try:
         llm = _get_title_llm()
         system = """Generate a concise title (max 6 words) and a one-sentence description from the user's first message."""
-        system = """
+        system = system_prompt="""
     You are a master at creating short, meaningful chat titles and descriptions by analyzing conversations between users and the Halalify AI assistant.
 
     Your task: Extract key themes from the conversation to create a title and description.

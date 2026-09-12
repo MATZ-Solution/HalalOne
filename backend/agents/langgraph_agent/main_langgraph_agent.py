@@ -1,65 +1,38 @@
 
-import os
-import json
-import uuid
 import asyncio
+import json
+import os
+import uuid
+from contextlib import aclosing
+
 import chat_store
 import session_state
-from log.logger import log
+from config.timeouts import AGENT_TIMEOUT_S, SUMMARY_TIMEOUT_S
 from dotenv import load_dotenv
-from contextlib import aclosing
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages.utils import count_tokens_approximately
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import RetryPolicy, default_retry_on
+from log.logger import log
+
 from .LLMs.llm import summarizer_llm
 from .models.models import SearchAgentState
-from langgraph.graph import StateGraph, START, END
-from langgraph.types import RetryPolicy, default_retry_on
-from .prompts.prompt import SUMMARIZE_CONVERSATION_PROMPT
-from langchain_core.messages.utils import count_tokens_approximately
-from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from .nodes.node import (
-    search_node, tool_node, judge_node, orchestration_node,
-    response_node, should_continue, default_error_handler,
+    default_error_handler,
+    judge_node,
+    orchestration_node,
+    response_node,
+    search_node,
+    should_continue,
+    tool_node,
 )
+from .prompts.prompt import SUMMARIZE_CONVERSATION_PROMPT
 
 load_dotenv(override=True)
 
-# Fallback keep budget (tokens) if a caller doesn't pass one. Normally main.py
-# passes SUMMARY_KEEP_TOKENS (a % of the compaction threshold).
-DEFAULT_KEEP_TOKENS = int(os.getenv("SUMMARY_KEEP_TOKENS", "20000"))
-
-
-def _msg_tokens(m: dict) -> int:
-    """Approx token count of one agent-history message."""
-    role = m.get("role")
-    lc = AIMessage(content=m.get("content", "")) if role == "assistant" else HumanMessage(content=m.get("content", ""))
-    return count_tokens_approximately([lc])
-
-
-def _split_by_token_budget(history: list[dict], budget: int) -> tuple[list[dict], list[dict]]:
-    """Split history into (fold, kept). Keeps the most-recent WHOLE turns whose token
-    sum stays within `budget`, folding the rest. A turn starts at a user message and
-    includes the assistant reply that follows. Rounds DOWN to a turn boundary; always
-    keeps at least the last turn even if it alone exceeds the budget (never truncates a
-    message); returns ([], history) when everything already fits (nothing to fold)."""
-    if not history:
-        return [], []
-    turn_starts = [i for i, m in enumerate(history) if m.get("role") == "user"]
-    if not turn_starts:
-        return [], list(history)  # malformed (no user msg): keep all, fold nothing
-    kept_start = turn_starts[-1]                      # last turn is always kept
-    running = sum(_msg_tokens(m) for m in history[kept_start:])
-    for ts in reversed(turn_starts[:-1]):
-        turn_toks = sum(_msg_tokens(m) for m in history[ts:kept_start])
-        if running + turn_toks > budget:
-            break                                     # round down: stop before it exceeds
-        running += turn_toks
-        kept_start = ts
-    return history[:kept_start], history[kept_start:]
-
-# Hard cap on the summarizer LLM call. A hang (as opposed to an error) would
-# otherwise leave the session stuck in the "compacting" state forever, since the
-# caller's try/except only catches raised exceptions. On timeout we raise, which
-# flows into _run_compaction's fallback (full, un-compacted context).
-SUMMARY_TIMEOUT_S = float(os.getenv("SUMMARY_TIMEOUT_S", "45"))
+# Number of most-recent messages kept verbatim after a fold. N turns (a
+# user+assistant pair) => 2N messages. Read once at import.
+KEEP_MESSAGES = int(os.getenv("SUMMARY_KEEP_TURNS", "10")) * 2
 
 
 workflow = StateGraph[SearchAgentState, None, SearchAgentState, SearchAgentState](SearchAgentState)
@@ -130,26 +103,31 @@ def _build_results(response: str, result: dict) -> dict:
         "matched": matched,
         "relevant": relevant,
         "documents": matched + relevant,
-        # Section tag for the matched bucket: "Matches" (semantic) or "Exact Matches"
-        # (keyword). Defaults for the error path, which has no label.
-        "match_label": result.get("match_label", "Exact Matches"),
     }
 
 
 async def run_agent(query:str, config: dict = None)-> dict:
     if not query:
-        return {"response": "Please enter a valid query", "matched": [], "relevant": []}
-    result = await asyncio.to_thread(
-        search_agent.invoke,
-        _initial_state(query, [HumanMessage(query)]),
-        config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
+        return _build_results("Please enter a valid query", {})
+    # Outer bound on the whole turn (search -> judge -> possibly loop ->
+    # response). Each node has retries but no timeout of its own on the LLM
+    # calls that back them, so nothing else here caps total wall-clock time on
+    # a hang the way compact_session's SUMMARY_TIMEOUT_S does for the summarizer.
+    result = await asyncio.wait_for(
+        asyncio.to_thread(
+            search_agent.invoke,
+            _initial_state(query, [HumanMessage(query)]),
+            config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
+        ),
+        timeout=AGENT_TIMEOUT_S,
     )
     final = json.loads(result["messages"][-1].content)
-    return {
-        "response": final.get("response", ""),
-        "matched": final.get("matched", []),
-        "relevant": final.get("relevant", []),
-    }
+    # return {
+    #     "response": final.get("response", ""),
+    #     "matched": final.get("matched", []),
+    #     "relevant": final.get("relevant", []),
+    # }
+    return _build_results(final.get("response", ""), final)
 
 # ---------------------------------------------------------------------------
 # Conversation summarization / compaction
@@ -217,28 +195,28 @@ def context_token_count(summary: str, lc_messages: list) -> int:
     return count_tokens_approximately(msgs)
 
 
-async def compact_session(session_id: str, keep_token_budget: int = DEFAULT_KEEP_TOKENS) -> tuple[str, list[dict], bool]:
-    """Fold everything older than the recent verbatim tail into the rolling summary.
+async def compact_session(session_id: str) -> tuple[str, list[dict], bool]:
+    """Fold everything older than the last KEEP_MESSAGES into the rolling summary.
 
-    The tail is the most-recent WHOLE turns fitting within `keep_token_budget` tokens
-    (a % of the compaction threshold, passed by the caller) — so the kept size scales
-    with token weight, not a fixed message count, keeping a stable margin below the
-    trigger. Reads the Valkey history (entries carry their DB message id) and the
-    current summary, summarizes the older slice, accumulates the covered message ids,
+    Reads the Valkey history (entries carry their DB message id) and the current
+    summary, summarizes the older slice, accumulates the covered message ids,
     persists a new chat_summaries row, and updates the Valkey summary + trimmed
-    history. Returns (summary, kept_messages, did_compact). did_compact is False when
-    everything already fits in the budget (nothing to fold) — a benign no-op. Raises
-    if the model returned an empty summary so the caller can surface a failure.
+    history. Returns (summary, kept_messages, did_compact). did_compact is False
+    when there was nothing to fold (history already <= KEEP_MESSAGES) — a benign
+    no-op; the caller just proceeds with the full context. Raises if the model
+    returned an empty summary so the caller can surface a failure and fall back.
     """
     history = await session_state.load_history(session_id) or []
     summary_state = await session_state.load_summary(session_id) or {}
     old_summary = summary_state.get("summary", "")
     old_ids = summary_state.get("message_ids", [])
 
-    fold, kept = _split_by_token_budget(history, keep_token_budget)
-    if not fold:
-        # Everything fits in the keep budget — can't reduce further.
+    if len(history) <= KEEP_MESSAGES:
+        # Nothing older than the kept tail — can't reduce further.
         return old_summary, history, False
+
+    fold = history[:-KEEP_MESSAGES]
+    kept = history[-KEEP_MESSAGES:]
 
     # Bound the blocking LLM call: a hung summarizer would otherwise strand the
     # session in "compacting" indefinitely. On timeout, wait_for raises
@@ -248,7 +226,7 @@ async def compact_session(session_id: str, keep_token_budget: int = DEFAULT_KEEP
             asyncio.to_thread(summarize_conversation, _history_dicts_to_lc(fold), old_summary),
             timeout=SUMMARY_TIMEOUT_S,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("compaction.summarize_timeout", session_id=session_id, timeout_s=SUMMARY_TIMEOUT_S)
         raise
     if not result:
@@ -274,16 +252,7 @@ async def compact_session(session_id: str, keep_token_budget: int = DEFAULT_KEEP
         await session_state.clear_summary(session_id)
         await session_state.clear_history(session_id)
 
-    kept_turns = sum(1 for m in kept if m.get("role") == "user")
-    folded_turns = sum(1 for m in fold if m.get("role") == "user")
-    kept_tokens = sum(_msg_tokens(m) for m in kept)
-    log.info(
-        "compaction.folded", session_id=session_id,
-        kept_turns=kept_turns, folded_turns=folded_turns,
-        kept_msgs=len(kept), folded_msgs=len(fold),
-        kept_tokens=kept_tokens, keep_budget=keep_token_budget,
-        covered_ids=len(new_ids),
-    )
+    log.info("compaction.folded", session_id=session_id, folded=len(fold), kept=len(kept), covered_ids=len(new_ids))
     return new_summary, kept, True
 
 async def stream_agent(query: str, conversation_history: list):
@@ -295,77 +264,123 @@ async def stream_agent(query: str, conversation_history: list):
         return
     
     final_result = None
-    
-    async with aclosing(
-        search_agent.astream(
-            _initial_state(query, conversation_history),
-            stream_mode=["messages", "custom", "updates"],
-            version="v2",
-        )
-    ) as stream:
-        async for chunk in stream:
-            if chunk["type"] == "updates":
-                for node_name, state in chunk["data"].items():
-                    if node_name == "__default_error_handler__" and state:
-                        messages = state.get("messages", [])
-                        if messages:
-                            result = json.loads(messages[-1].content)
-                            final_result = _build_results(result.get("response", "Some error occured, please try again."), result)
-                            break
-                    elif node_name == "response_node" and state:
-                        messages = state.get("messages", [])
-                        if messages:
-                            result = json.loads(messages[-1].content)
-                            final_result = _build_results(result.get("response", ""), result)
-                            break
-                if final_result:
-                    break
 
-            elif chunk["type"] == "messages":
-                message, metadata = chunk["data"]
-                node_name = metadata.get("langgraph_node", "")
-                content_blocks = getattr(message, 'content_blocks', [])
-                for block in content_blocks:
-                    if block.get("type") == "reasoning":
-                        reasoning = block.get("reasoning")
-                        if reasoning:
-                            yield {"type": "reasoning", "node": node_name, "reasoning": reasoning}
+    # Outer bound on the whole streamed turn, same reasoning as run_agent.
+    # astream() is an async generator, not a single awaitable, so
+    # asyncio.wait_for can't wrap it directly — asyncio.timeout() (3.11+, this
+    # repo pins 3.13) is the right primitive here. A TimeoutError propagates
+    # out of this generator to main.py's _stream_and_persist, whose existing
+    # `except Exception` already turns it into the same ERROR_RESULT any other
+    # agent-stream failure gets.
+    async with asyncio.timeout(AGENT_TIMEOUT_S):
+        async with aclosing(
+            search_agent.astream(
+                _initial_state(query, conversation_history),
+                stream_mode=["messages", "custom", "updates"],
+                version="v2",
+            )
+        ) as stream:
+            async for chunk in stream:
+                if chunk["type"] == "updates":
+                    for node_name, state in chunk["data"].items():
+                        if node_name == "__default_error_handler__" and state:
+                            messages = state.get("messages", [])
+                            if messages:
+                                result = json.loads(messages[-1].content)
+                                final_result = _build_results(result.get("response", "Some error occured, please try again."), result)
+                                break
+                        elif node_name == "response_node" and state:
+                            messages = state.get("messages", [])
+                            if messages:
+                                result = json.loads(messages[-1].content)
+                                final_result = _build_results(result.get("response", ""), result)
+                                break
+                    if final_result:
+                        break
 
-                tool_calls = getattr(message, 'tool_calls', [])
-                for tool_call in tool_calls:
-                    name = tool_call.get("name")
-                    args = tool_call.get("args")
-                    if name == "KeywordFilterSearch":
-                        has_keywords = bool(args.get("keyword_args"))
-                        has_filters = bool(args.get("filter_args"))
-                        msg = None
-                        if has_keywords and has_filters:
-                            msg = "Searching keywords"
-                        elif not has_keywords and has_filters:
-                            msg = "Applying filters"
-                        else:
-                            msg = "Searching relevant products"
-                        yield {"type": "tool_status", "node": node_name, "message": msg, "tool": name, "args": args}
-                    elif name == "SemanticFilterSearch":
-                        yield {"type": "tool_status", "node": node_name, "message": "Performing Semantic Search", "tool": name, "args": args}
-                    elif name == "WebSearch":
-                        yield {"type": "tool_status", "node": node_name, "message": "Searching the web", "tool": name, "args": args}
+                elif chunk["type"] == "messages":
+                    message, metadata = chunk["data"]
+                    node_name = metadata.get("langgraph_node", "")
+                    content_blocks = getattr(message, 'content_blocks', [])
+                    for block in content_blocks:
+                        if block.get("type") == "reasoning":
+                            reasoning = block.get("reasoning")
+                            if reasoning:
+                                yield {"type": "reasoning", "node": node_name, "reasoning": reasoning}
 
-            elif chunk["type"] == "custom":
-                data = chunk['data']
-                if data.get("type") == "web_source":
-                    yield {
-                        "type": "web_source",
-                        "url": data.get("url"),
-                        "title": data.get("title"),
-                        "favicon": data.get("favicon"),
-                        "highlights": data.get("highlights", []),
-                    }
-                else:
-                    search_results = data.get("search_results", [])
-                    tool = data.get('tool', "Tool Result")
-                    if search_results:
-                        yield {"type": "search_results", "search_results": search_results, "tool": tool}
+                    tool_calls = getattr(message, 'tool_calls', [])
+                    for tool_call in tool_calls:
+                        name = tool_call.get("name")
+                        args = tool_call.get("args")
+                        if name == "KeywordFilterSearch":
+                            has_keywords = bool(args.get("keyword_args"))
+                            has_filters = bool(args.get("filter_args"))
+                            msg = None
+                            if has_keywords and has_filters:
+                                msg = "Searching keywords"
+                            elif not has_keywords and has_filters:
+                                msg = "Applying filters"
+                            else:
+                                msg = "Searching relevant products"
+                            yield {"type": "tool_status", "node": node_name, "message": msg, "tool": name, "args": args}
+                        elif name == "SemanticFilterSearch":
+                            yield {"type": "tool_status", "node": node_name, "message": "Performing Semantic Search", "tool": name, "args": args}
+                        elif name == "WebSearch":
+                            yield {"type": "tool_status", "node": node_name, "message": "Searching the web", "tool": name, "args": args}
+
+                elif chunk["type"] == "custom":
+                    data = chunk['data']
+                    if data.get("type") == "web_source":
+                        yield {
+                            "type": "web_source",
+                            "url": data.get("url"),
+                            "title": data.get("title"),
+                            "favicon": data.get("favicon"),
+                            "highlights": data.get("highlights", []),
+                        }
+                    else:
+                        search_results = data.get("search_results", [])
+                        tool = data.get('tool', "Tool Result")
+                        if search_results:
+                            yield {"type": "search_results", "search_results": search_results, "tool": tool}
 
     if final_result:
         yield final_result
+
+
+# async def _test_stream_agent_search() -> dict:
+#     """A product query should stream intermediate events and end on a `results`
+#     chunk carrying the matched/relevant split."""
+#     query = "Halal products with high calcium intake"
+#     final = None
+#     async for chunk in stream_agent(query, [HumanMessage(query)]):
+#         if chunk.get("type") == "results":
+#             final = chunk
+#         else:
+#             print("stream:", chunk.get("type"), chunk.get("tool") or chunk.get("message") or "")
+
+#     assert final is not None, "no results chunk emitted"
+#     for key in ("response", "matched", "relevant", "documents"):
+#         assert key in final, f"results chunk missing '{key}'"
+#     print(f"SEARCH OK | matched={len(final['matched'])} relevant={len(final['relevant'])} | {final['response']}")
+#     return final
+
+
+# async def _test_stream_agent_direct() -> dict:
+#     """A direct/greeting query should skip search and return a `results` chunk
+#     with no products in either bucket."""
+#     query = "Salam brother, I am so frustrated looking for halal products in the European markerts, it feels so overwhelming?"
+#     final = None
+#     async for chunk in stream_agent(query, [HumanMessage(query)]):
+#         if chunk.get("type") == "results":
+#             final = chunk
+
+#     assert final is not None, "no results chunk emitted"
+#     assert final.get("matched") == [], "direct query should have no matched products"
+#     assert final.get("relevant") == [], "direct query should have no relevant products"
+#     print(f"DIRECT OK | {final['response']}")
+#     return final
+
+
+# asyncio.run(_test_stream_agent_search())
+# asyncio.run(_test_stream_agent_direct())

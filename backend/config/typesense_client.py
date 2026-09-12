@@ -10,6 +10,8 @@ TYPESENSE_PORT=os.getenv('TYPESENSE_PORT', 8108)
 TYPESENSE_PROTOCOL=os.getenv('TYPESENSE_PROTOCOL', 'http')
 TYPESENSE_API_KEY=os.getenv('TYPESENSE_API_KEY', 'abcd')
 
+
+print("Typesense host",TYPESENSE_HOST )
 try:
     TS_CLIENT = typesense.Client({
         'nodes': [{
@@ -18,7 +20,7 @@ try:
             'protocol': TYPESENSE_PROTOCOL    # For Typesense Cloud use https
         }],
         'api_key': TYPESENSE_API_KEY,
-        'connection_timeout_seconds': 10
+        'connection_timeout_seconds': 50
     })
 except Exception as e:
     raise ValueError(f"Some error occured while initializing TypeSense, Error: {e}")

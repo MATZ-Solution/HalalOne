@@ -3,6 +3,8 @@ import asyncio
 import valkey.asyncio as valkey
 from dotenv import load_dotenv
 
+from config.timeouts import VALKEY_TIMEOUT_S
+
 load_dotenv()
 
 _client: "valkey.Valkey | None" = None
@@ -24,7 +26,12 @@ async def get_valkey() -> "valkey.Valkey":
                 # local .env files, and from_url("") raises.
                 raw = os.getenv("VALKEY_URL") or "redis://localhost:6379/0"
                 url = raw.replace("redis://", "valkey://", 1).replace("rediss://", "valkeys://", 1)
-                client = valkey.Valkey.from_url(url, decode_responses=True)
+                client = valkey.Valkey.from_url(
+                    url,
+                    decode_responses=True,
+                    socket_timeout=VALKEY_TIMEOUT_S,
+                    socket_connect_timeout=VALKEY_TIMEOUT_S,
+                )
                 await client.ping()
                 _client = client
     return _client

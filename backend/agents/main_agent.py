@@ -1,21 +1,23 @@
-import os
-import uuid
 import asyncio
 import json
-from typing import Literal, Optional, Dict, Any, List
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-from langchain_groq import ChatGroq
-from langchain_fireworks import FireworksEmbeddings, ChatFireworks
-from langchain.agents import create_agent
-from langchain_core.tools import StructuredTool
-from langgraph.checkpoint.memory import InMemorySaver
-from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
-from config.typesense_client import TS_CLIENT
+import os
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Literal, Optional
+
 from collection.search.search_collection import search_collection
+from config.timeouts import AGENT_TIMEOUT_S, EMBEDDING_TIMEOUT_S, LLM_TIMEOUT_S
+from config.typesense_client import TS_CLIENT
+from dotenv import load_dotenv
+from langchain.agents import create_agent
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
+from langchain_core.tools import StructuredTool
+from langchain_fireworks import ChatFireworks, FireworksEmbeddings
+from langchain_groq import ChatGroq
+from langgraph.checkpoint.memory import InMemorySaver
 from log.logger import log
 from models.agent_output import OutputSchema
-
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -72,7 +74,7 @@ def format_results(docs: List[Dict]) -> str:
     lines = []
     # return results from top4
     for doc in docs[:4]:
-        companies = ", ".join(doc.get("companies", [])) or "N/A"
+        companies = ", ".join(doc.get("companies") or []) or "N/A"
         lines.append(
             f"• [{doc['canonical_id']}] {doc.get('norm_name', 'N/A')}\n"
             f"  Status: {doc.get('halal_status', 'N/A')} | "
@@ -118,21 +120,26 @@ def _keyword_search(keyword_args: Optional[Dict], filter_args: Optional[Dict]) -
 
 
 def _semantic_search(semantic_query: str, filter_args: Optional[Dict]) -> List[Dict]:
-    embedding = embedding_model.embed_query(semantic_query)
-    embedding_str = ",".join(map(str, embedding))
-    params: Dict[str, Any] = {
-        "collection": COLLECTION,
-        "q": "*",
-        "vector_query": f"embedding:([{embedding_str}], k:10)",
-        "per_page": 10,
-        "exclude_fields": "embedding",
-    }
-
-    filter_str = build_filter_string(filter_args)
-    if filter_str:
-        params["filter_by"] = filter_str
-
     try:
+        # No timeout kwarg on FireworksEmbeddings itself (see
+        # langgraph_agent/embeddings/embeddings.py) and this is a plain sync
+        # function, so bound the call via a thread-pool future instead.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            embedding = pool.submit(embedding_model.embed_query, semantic_query).result(
+                timeout=EMBEDDING_TIMEOUT_S
+            )
+        embedding_str = ",".join(map(str, embedding))
+        params: Dict[str, Any] = {
+            "collection": COLLECTION,
+            "q": "*",
+            "vector_query": f"embedding:([{embedding_str}], k:10)",
+            "per_page": 10,
+            "exclude_fields": "embedding",
+        }
+
+        filter_str = build_filter_string(filter_args)
+        if filter_str:
+            params["filter_by"] = filter_str
         result = TS_CLIENT.multi_search.perform({"searches": [params]}, {})
         hits = result["results"][0].get("hits", [])
         return [h["document"] for h in hits] if hits else []
@@ -344,6 +351,7 @@ llm = ChatGroq(
     model="openai/gpt-oss-120b",
     api_key=os.getenv("GROQ_API_KEY"),
     temperature=0,
+    timeout=LLM_TIMEOUT_S,
 )
 
 
@@ -357,10 +365,16 @@ def build_image_url(base64: str, mime_type: str) -> list:
 
 async def run_agent(query: str | list, config: dict = None) -> dict:
     content = query if isinstance(query, list) else query
-    result = await asyncio.to_thread(
-        agent.invoke,
-        {"messages": [{"role": "user", "content": content}]},
-        config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
+    # Outer bound on the whole agent turn (mirrors compact_session's
+    # asyncio.wait_for pattern in main_langgraph_agent.py) — the graph's own
+    # per-node LLM timeouts don't cap total turn latency on their own.
+    result = await asyncio.wait_for(
+        asyncio.to_thread(
+            agent.invoke,
+            {"messages": [{"role": "user", "content": content}]},
+            config=config or {"configurable": {"thread_id": str(uuid.uuid4())}}
+        ),
+        timeout=AGENT_TIMEOUT_S,
     )
     messages = result["messages"]
     print(messages)
@@ -380,35 +394,39 @@ async def stream_agent(query: str | list, config: dict = None):
     content = query if isinstance(query, list) else query
     final_result = {"response": "", "documents": []}
 
-    async for chunk in agent.astream(
-        {"messages": [{"role": "user", "content": content}]},
-        config=config or {"configurable": {"thread_id": str(uuid.uuid4())}},
-        stream_mode="updates",
-    ):
-        for _node, node_data in chunk.items():
-            for msg in node_data.get("messages", []):
-                for tc in getattr(msg, "tool_calls", []):
-                    name = tc.get("name", "")
-                    args = tc.get("args", {})
-                    if name == "KeywordFilterSearch":
-                        has_keywords = bool(args.get("keyword_args"))
-                        has_filters = bool(args.get("filter_args"))
-                        if has_keywords:
-                            message = "Searching keywords"
-                        elif has_filters:
-                            message = "Applying filters"
-                        else:
-                            message = "Searching relevant products"
-                        yield {"type": "status", "message": message, "tool": name, "args": args}
-                    elif name == "SemanticFilterSearch":
-                        yield {"type": "status", "message": "Searching semantics", "tool": name, "args": args}
-                    elif name == "FinalAnswer":
-                        print("Final Response", args.get("response", "No response"))
-                        print("Final products", args.get("products", []))
+    # Outer bound on the whole streamed turn — astream() is an async generator,
+    # so asyncio.wait_for can't wrap it directly; asyncio.timeout() (3.11+,
+    # this repo pins 3.13) is the right primitive, same reasoning as run_agent.
+    async with asyncio.timeout(AGENT_TIMEOUT_S):
+        async for chunk in agent.astream(
+            {"messages": [{"role": "user", "content": content}]},
+            config=config or {"configurable": {"thread_id": str(uuid.uuid4())}},
+            stream_mode="updates",
+        ):
+            for _node, node_data in chunk.items():
+                for msg in node_data.get("messages", []):
+                    for tc in getattr(msg, "tool_calls", []):
+                        name = tc.get("name", "")
                         args = tc.get("args", {})
-                        final_result = {
-                            "response": args.get("response", ""),
-                            "documents": args.get("products", []),
-                        }
+                        if name == "KeywordFilterSearch":
+                            has_keywords = bool(args.get("keyword_args"))
+                            has_filters = bool(args.get("filter_args"))
+                            if has_keywords:
+                                message = "Searching keywords"
+                            elif has_filters:
+                                message = "Applying filters"
+                            else:
+                                message = "Searching relevant products"
+                            yield {"type": "status", "message": message, "tool": name, "args": args}
+                        elif name == "SemanticFilterSearch":
+                            yield {"type": "status", "message": "Searching semantics", "tool": name, "args": args}
+                        elif name == "FinalAnswer":
+                            print("Final Response", args.get("response", "No response"))
+                            print("Final products", args.get("products", []))
+                            args = tc.get("args", {})
+                            final_result = {
+                                "response": args.get("response", ""),
+                                "documents": args.get("products", []),
+                            }
 
     yield {"type": "results", **final_result}

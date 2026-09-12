@@ -3,6 +3,7 @@ import json
 import asyncio
 import base64
 import contextlib
+import random
 import chat_store
 from datetime import datetime, timezone
 from log.logger import logger, log
@@ -37,17 +38,9 @@ from langchain_core.messages.utils import count_tokens_approximately
 
 load_dotenv(override=True)
 
-# Base token count that triggers a compaction prompt (~30% of the model context).
-# Effective trigger is this value x (1 + declines), capped at 2x; the user may
-# decline once, and the second time compaction is forced (no prompt). At a 44k base
-# the forced ceiling is ~88k, which leaves ample room under the model context.
-SUMMARY_TOKEN_THRESHOLD = int(os.getenv("SUMMARY_TOKEN_THRESHOLD", "44000"))
-
-# After a fold, keep the most-recent whole turns that fit in this many tokens (a % of
-# the base threshold). Token-based (not a fixed turn count) so the kept tail — and thus
-# the margin below the trigger — stays stable regardless of how heavy recent turns are.
-SUMMARY_KEEP_PC = int(os.getenv("SUMMARY_KEEP_PC", "50"))
-SUMMARY_KEEP_TOKENS = int(SUMMARY_TOKEN_THRESHOLD * SUMMARY_KEEP_PC / 100)
+# Base token count that triggers a compaction prompt. Effective trigger is this
+# value x (1 + declines), capped at 3x; after the 3rd decline it is forced.
+SUMMARY_TOKEN_THRESHOLD = int(os.getenv("SUMMARY_TOKEN_THRESHOLD", "3000"))
 
 # User-facing compaction copy.
 COMPACTION_ASK_MSG = "Your conversation has hit the token limit. Compact it to a summary to keep chatting smoothly?"
@@ -56,6 +49,9 @@ COMPACTION_RUNNING_MSG = "History is being compacted, please wait…"
 # Sent when a prompt/image arrives for a session that is waiting on a compaction
 # decision or actively compacting.
 COMPACTION_BUSY_RESULT = {"type": "results", "response": "Please resolve the compaction prompt before sending another message.", "documents": []}
+
+
+
 
 # How long a graceful shutdown waits for in-flight pipelines to land their answers.
 # Bounds how long a deploy can be held up; anything still running past it is
@@ -121,6 +117,19 @@ BUSY_RESULT = {"type": "results", "response": "Still processing your previous me
 
 # The only message types the socket accepts; anything else closes the connection.
 VALID_MESSAGE_TYPES = {"chat_sessions", "chat_history", "delete_session", "prompt", "image", "run_with_fields", "compact_confirm", "compact_decline"}
+
+
+def _vision_retry_backoff_delay(attempt: int) -> float:
+    """Seconds to wait before the next invoke_llm_with_image retry (exponential
+    + jitter). The retry loops below previously fired all 3 attempts back to
+    back with no delay; web_search.py's _backoff_delay is the reference pattern
+    but is typed against httpx.HTTPError specifically (Retry-After header,
+    status codes) and doesn't fit here, since invoke_llm_with_image already
+    catches its own exceptions and returns an {"error": ...} dict rather than
+    raising httpx errors up to the caller — so this is a small, generic
+    stand-in rather than a reuse of that helper."""
+    base = min(0.5 * (2 ** attempt), 8.0)
+    return base + random.uniform(0, base * 0.25)
 
 # Max inbound WS message size (bytes). Sized to allow a base64 image (~1.33x the
 # raw file) plus JSON overhead; oversized messages are dropped, not parsed.
@@ -251,7 +260,7 @@ async def _stream_and_persist(
                             log.error("ws.user_message.persist_failed", error=str(e), error_type=type(e).__name__)
                     # Persist the matched/relevant split (frontend display source of
                     # truth). JSONB column, so no schema change.
-                    msg_id = await chat_store.insert_message(session_id, "assistant", response, {"matched": matched, "relevant": relevant, "match_label": chunk.get("match_label")})
+                    msg_id = await chat_store.insert_message(session_id, "assistant", response, {"matched": matched, "relevant": relevant})
                     # Carry the DB id so a client that already loaded this message
                     # via chat_history can drop the duplicate instead of appending
                     # the same answer twice.
@@ -290,7 +299,7 @@ async def _run_compaction(user_id: str, session_id: str) -> tuple[str, list[dict
     await save_compaction(session_id, {"phase": "compacting", "declines": 0, "pending": None, "message": COMPACTION_RUNNING_MSG})
     await publish_chunk(user_id, session_id, {"type": "compaction_running", "message": COMPACTION_RUNNING_MSG})
     try:
-        summary, kept, _did = await compact_session(session_id, SUMMARY_KEEP_TOKENS)
+        summary, kept, _did = await compact_session(session_id)
         await clear_compaction(session_id)
         await publish_chunk(user_id, session_id, {"type": "compaction_done"})
         return summary, kept
@@ -365,23 +374,21 @@ async def run_prompt_pipeline(session_id: str, user_id: str, prompt: str, image_
     history.append({"id": None, "role": "user", "content": prompt})
     conversation_history = _history_to_messages(history, summary)
 
-    # 2) Compaction gate. The user may decline once (trigger rises to 2x); the second
-    #    time over the trigger it's forced (no prompt). Under the trigger, answer normally.
+    # 2) Compaction gate. The effective trigger rises with each decline; after the
+    #    3rd decline it's forced (no prompt). Under the trigger, answer normally.
     declines = int(state.get("declines", 0))
-    effective_threshold = SUMMARY_TOKEN_THRESHOLD * min(1 + declines, 2)
+    effective_threshold = SUMMARY_TOKEN_THRESHOLD * min(1 + declines, 3)
     token_count = count_tokens_approximately(conversation_history)
 
     if token_count >= effective_threshold:
-        print("Current token count", token_count)
-        print("Effective token threshold", effective_threshold)
         # Both branches need the user turn durably in Valkey first: a fold reads
         # history from Valkey, and a paused turn must not lose the message.
         try:
             await persist_user_task
         except Exception as e:
             log.error("ws.user_message.persist_failed", error=str(e), error_type=type(e).__name__)
-        if declines >= 1:
-            # Forced after one decline: compact inline (same lease), then answer.
+        if declines >= 3:
+            # Forced: compact inline (same lease), then answer with summary + tail.
             summary, kept = await _run_compaction(user_id, session_id)
             conversation_history = _history_to_messages(kept, summary)
             await _stream_and_persist(user_id, session_id, prompt, conversation_history)
@@ -417,16 +424,15 @@ async def resume_after_confirm(session_id: str, user_id: str):
 
 
 async def resume_after_decline(session_id: str, user_id: str):
-    """User declined: raise the trigger to 2x and answer the paused prompt with the
-    full, un-compacted context. Only one decline is allowed — the next time over the
-    (now 2x) trigger, compaction is forced (declines >= 1)."""
+    """User declined: raise the trigger (2x, then 3x, then forced next time) and
+    answer the paused prompt with the full, un-compacted context."""
     state = await load_compaction(session_id)
     pending = state.get("pending")
     if not pending:
         await clear_compaction(session_id)
         await publish_chunk(user_id, session_id, {"type": "compaction_done"})
         return
-    declines = min(int(state.get("declines", 0)) + 1, 1)
+    declines = min(int(state.get("declines", 0)) + 1, 3)
     await save_compaction(session_id, {"phase": "idle", "declines": declines, "pending": None})
     await publish_chunk(user_id, session_id, {"type": "compaction_done"})
     summary, history = await _load_context(session_id, user_id)
@@ -467,28 +473,26 @@ async def extract_image_endpoint(req: ExtractImageRequest, authorization: str = 
         # global LLM budget. One user can neither spam the endpoint nor dominate the
         # shared LLM budget.
         if not await allow_user(user_id, "extract-image"):
-            log.warning("ratelimit.rejected", kind="user_req_rate", action="http.extract_image")
             raise HTTPException(status_code=429, detail="Too many requests, please slow down")
         if not await try_consume_user_llm(user_id):
-            log.warning("ratelimit.rejected", kind="user_llm", action="http.extract_image")
             raise HTTPException(status_code=429, detail="You've reached your request limit for now, please wait a moment")
         if not await try_consume_llm():
-            log.warning("ratelimit.rejected", kind="global_llm", action="http.extract_image")
             raise HTTPException(status_code=429, detail="High load, please retry shortly")
         image_url = build_image_url(req.base64, req.mime_type)
         if not image_url:
             raise HTTPException(status_code=400, detail="Invalid image data")
-        # invoke_llm_with_image already does model fallback + feedback retries under an
-        # overall deadline, so call it ONCE — an outer retry loop would multiply that
-        # deadline (3x) and blow past the client's timeout.
-        try:
-            result = await invoke_llm_with_image(image_url)
-        except Exception as e:
-            log.error("http.extract_image.failed", error=str(e), error_type=type(e).__name__)
-            raise HTTPException(status_code=422, detail="Failed to extract image information")
-        if "error" in result:
-            raise HTTPException(status_code=422, detail=result["error"])
-        return {"fields": result}
+        for attempt in range(3):
+            try:
+                print("invoking llm with image")
+                result = await invoke_llm_with_image(image_url)
+                if "error" not in result:
+                    return {"fields": result}
+            except Exception as e:
+                print("Some error occured while invoking image llm", e)
+                log.error("http.extract_image.failed", error=str(e), error_type=type(e).__name__)
+            if attempt < 2:
+                await asyncio.sleep(_vision_retry_backoff_delay(attempt))
+        raise HTTPException(status_code=422, detail="Failed to extract image information")
 
 
 @app.websocket("/ws")
@@ -514,22 +518,32 @@ async def websocket_endpoint(
     # capacity or coordination state (Valkey) is unavailable.
     conn_id = await open_connection()
     if conn_id is None:
-        log.warning("ws.connection.rejected", reason="capacity", user_id=user_id)
         await websocket.close(code=1013, reason="Server at capacity, please retry later")
         return
 
-    await websocket.accept()
-    # Connection lifecycle events: pair opened/closed to chart concurrent connections.
-    log.info("ws.connection.opened", user_id=user_id)
-    # One connection serves all of a user's sessions; the session id travels in
-    # each message. All per-session state (conversation history, the in-flight
-    # guard) now lives in Valkey, so nothing session-scoped is kept in this
-    # process — another instance sees the same state.
+    # accept() and subscribe_user() run before the try/finally below that
+    # releases conn_id — neither is guarded on its own (subscribe_user has no
+    # try/except at all), so a failure here used to leak the connection-cap
+    # slot forever. Release it explicitly on any failure in this window.
+    try:
+        await websocket.accept()
+        # One connection serves all of a user's sessions; the session id
+        # travels in each message. All per-session state (conversation
+        # history, the in-flight guard) now lives in Valkey, so nothing
+        # session-scoped is kept in this process — another instance sees the
+        # same state.
 
-    # Every chunk this user's pipelines produce — on ANY instance — arrives here.
-    # Subscribed before the receive loop starts so a pipeline that finishes during
-    # this connection's startup still reaches us.
-    pubsub = await subscribe_user(user_id)
+        # Every chunk this user's pipelines produce — on ANY instance —
+        # arrives here. Subscribed before the receive loop starts so a
+        # pipeline that finishes during this connection's startup still
+        # reaches us.
+        pubsub = await subscribe_user(user_id)
+    except Exception as e:
+        log.error("ws.setup.failed", error=str(e), error_type=type(e).__name__)
+        await close_connection(conn_id)
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason="Connection setup failed")
+        return
 
     async def forward_published():
         """Relay this user's published pipeline chunks to their socket. Chunks are
@@ -580,11 +594,9 @@ async def websocket_endpoint(
         """Gate an LLM-backed op: per-user budget first (fairness), then the global
         budget (capacity). Sends the matching rejection and returns False if blocked."""
         if not await try_consume_user_llm(user_id):
-            log.warning("ratelimit.rejected", kind="user_llm", user_id=user_id)
             await safe_send(rate_limited(USER_LLM_REASON, 30))
             return False
         if not await try_consume_llm():
-            log.warning("ratelimit.rejected", kind="global_llm", user_id=user_id)
             await safe_send(rate_limited(LLM_BUSY_REASON, 30))
             return False
         return True
@@ -693,16 +705,32 @@ async def websocket_endpoint(
                 if not image_url:
                     await publish_chunk(user_id, session_id, {"type": "results", "response": "Try uploading another image", "documents": []})
                     return
-                # invoke_llm_with_image owns model fallback + feedback retries under an
-                # overall deadline, so call it once (no outer retry loop).
-                try:
-                    response = await invoke_llm_with_image(image_url)
-                except Exception as e:
-                    log.error("ws.image.extract_failed", error=str(e), error_type=type(e).__name__)
-                    await publish_chunk(user_id, session_id, {"type": "results", "response": "Error occured while parsing image details, try again.", "documents": []})
-                    return
-                if response.get("error"):
-                    await publish_chunk(user_id, session_id, {"type": "results", "response": response["error"], "documents": []})
+                response = {}
+                success = False
+                # add retry logic here
+                for i in range(3):
+                    try:
+                        response = await invoke_llm_with_image(image_url)
+                        error = response.get("error")
+                        if error:
+                            if i == 2:
+                                await publish_chunk(user_id, session_id, {"type": "results", "response": response["error"], "documents": []})
+                                success = False
+                                break
+                            await asyncio.sleep(_vision_retry_backoff_delay(i))
+                            continue
+                        else:
+                            success = True
+                            break
+                    except Exception as e:
+                        log.error("ws.image.extract_failed", error=str(e), error_type=type(e).__name__)
+                        if i == 2:
+                            await publish_chunk(user_id, session_id, {"type": "results", "response": "Error occured while parsing image details, try again.", "documents": []})
+                            success = False
+                            break
+                        await asyncio.sleep(_vision_retry_backoff_delay(i))
+                        continue
+                if not success:
                     return
                 parts = []
                 # v can only be string or an array of strings
@@ -812,7 +840,6 @@ async def websocket_endpoint(
             # Per-user inbound message rate. Over budget -> drop this message
             # (keep the socket) and tell the client to retry shortly.
             if not await allow_message(user_id):
-                log.warning("ratelimit.rejected", kind="user_msg_rate", user_id=user_id)
                 await safe_send(rate_limited(MSG_RATE_REASON, 1))
                 continue
 
@@ -924,7 +951,6 @@ async def websocket_endpoint(
     finally:
         # Release the global connection slot.
         await close_connection(conn_id)
-        log.info("ws.connection.closed", user_id=user_id)
         # Stop relaying to a socket nobody is listening on, and hand the pubsub
         # connection back to the pool.
         forwarder.cancel()

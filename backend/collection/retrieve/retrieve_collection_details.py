@@ -1,5 +1,5 @@
-from config.typesense_client import TS_CLIENT
 from log.logger import logger
+from config.typesense_client import TS_CLIENT
 
 def retrieve_collection_details(collection_name: str):
     try:

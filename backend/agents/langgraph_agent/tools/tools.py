@@ -1,8 +1,10 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from log.logger import log
 from langchain.tools import tool
 from ..utils.web_search import stream_web_search
 from typing import Dict, Optional, List, Any
+from config.timeouts import EMBEDDING_TIMEOUT_S
 from config.typesense_client import TS_CLIENT
 from langgraph.config import get_stream_writer
 from ..embeddings.embeddings import embedding_model
@@ -22,10 +24,6 @@ FINAL_KEYWORD_LIMIT = 10
 K = 8
 FLAT_SEARCH_CUTOFF = 20
 DISTANCE_THRESHOLD = 0.3
-# Vector weight in a hybrid (keyword + vector) semantic search. 0.5 = balance brand
-# match and conceptual relevance; lower leans toward the brand keyword, higher toward
-# the concept. Only used when a company/brand arg is present.
-HYBRID_ALPHA = 0.5
 
 
 @tool(args_schema=KeywordFilterInput)
@@ -97,51 +95,51 @@ def KeywordFilterSearch(
 
 @tool(args_schema=SemanticFilterInput)
 def SemanticFilterSearch(
-    semantic_query: str,
-    companies: Optional[List[str]] = None,
-    filter_args: Optional[FilterArgs] = None,
+    semantic_query: str, filter_args: Optional[FilterArgs] = None
 ) -> List[Dict]:
-    """Search halal products by semantic/vector similarity. USE THIS when the query is
-    conceptual/descriptive with no specific product name — e.g. "a calcium-rich snack
-    for children" — INCLUDING when a brand is named with a general type ("Nestle
-    chocolates"): pass the brand in `companies` (and keep it in the query too).
+    """Search halal products by semantic/vector similarity. USE THIS only when the
+    query is conceptual or descriptive with NO specific product/brand named — e.g.
+    "a calcium-rich snack for children", "natural red food colouring", "good for
+    diabetics".
 
     Args:
-      semantic_query: a natural-language phrase capturing the additional detail other that can't go in the other fields.
-      companies: brand/company names, if any. When set, runs a hybrid (keyword+vector)
-        search so brand-matching products surface. Null if no brand is named.
+      semantic_query: a natural-language phrase capturing the user's intent.
       filter_args: same exact-match filters as KeywordFilterSearch. Pass null if none.
     """
     # The embedding call is a network round-trip to Fireworks and belongs inside the
     # guard: a provider outage should degrade to "no products found" like every other
     # failure in this tool, not escape and fail the whole node.
     try:
-        embedding = embedding_model.embed_query(semantic_query)
+        # FireworksEmbeddings has no timeout kwarg of its own (see
+        # embeddings/embeddings.py), and this is a sync tool invoked from a
+        # worker thread with no running event loop, so asyncio.wait_for isn't
+        # usable here — bound the call with a thread-pool future instead. A
+        # TimeoutError falls through to the except below like any other failure.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            embedding = pool.submit(embedding_model.embed_query, semantic_query).result(
+                timeout=EMBEDDING_TIMEOUT_S
+            )
         # have to see whether this method of stringifying vector embeddings is correct or not
         embedding_str = ",".join(map(str, embedding))
 
         filter_str = build_filter_string(filter_args)
 
-        # A brand triggers a HYBRID search: keyword-match on `companies` fused with the
-        # vector search (weighted by alpha) so brand-matching products get surfaced.
-        # `alpha` only applies in hybrid; `flat_search_cutoff` only when filters narrow
-        # the pool. Params are comma-joined so the vector-query string is always valid.
-        vq_params = [f"distance_threshold: {DISTANCE_THRESHOLD}", f"k:{K}"]
-        if companies:
-            vq_params.append(f"alpha:{HYBRID_ALPHA}")
         if filter_str:
-            vq_params.append(f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF}")
-        vector_query = f"embedding:([{embedding_str}], " + ", ".join(vq_params) + ")"
+            vector_query = (
+                f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K}"
+                f"flat_search_cutoff:{FLAT_SEARCH_CUTOFF})"
+            )
+        else:
+            vector_query = f"embedding:([{embedding_str}], distance_threshold: {DISTANCE_THRESHOLD}, k:{K})"
 
         params: Dict[str, Any] = {
             "collection": COLLECTION,
-            "q": " ".join(companies) if companies else "*",
+            "q": "*",
             "vector_query": vector_query,
             "per_page": K,
             "exclude_fields": "embedding",
         }
-        if companies:
-            params["query_by"] = "companies"
+
         if filter_str:
             params["filter_by"] = filter_str
         result = TS_CLIENT.multi_search.perform({"searches": [params]}, {})
@@ -152,19 +150,6 @@ def SemanticFilterSearch(
             "tool.semantic_search.failed", error=str(e), error_type=type(e).__name__
         )
         return []
-
-
-def _grounding_for(grounding: List[Dict], index: int) -> List[Dict]:
-    """Grounding entries for products[index], with the array prefix stripped so each
-    `field` is the bare product field again (the shape the client expects). Exa keys
-    grounding by path — e.g. 'products[0].halal_status' — now that the schema returns
-    a list, so we split it back out per product."""
-    prefix = f"products[{index}]."
-    return [
-        {**g, "field": g["field"][len(prefix):]}
-        for g in grounding
-        if isinstance(g.get("field"), str) and g["field"].startswith(prefix)
-    ]
 
 
 @tool(args_schema=WebSearchInput)
@@ -184,7 +169,7 @@ def WebSearch(query: str) -> List[Dict]:
     except Exception:
         writer = None
 
-    products: List[Dict] = []
+    product = None
     grounding: List[Dict] = []
     try:
         for event in stream_web_search(query):
@@ -203,29 +188,21 @@ def WebSearch(query: str) -> List[Dict]:
                     )
             elif etype == "done":
                 output = event.get("output") or {}
-                products = (output.get("content") or {}).get("products") or []
+                product = output.get("content")
                 grounding = output.get("grounding") or []
     except Exception as e:
         log.error("tool.web_search.failed", error=str(e), error_type=type(e).__name__)
         return []
 
-    # Keep only well-formed products; stamp each like a DB product so response_node
-    # can select it by id. The `halal_` prefix + verified=False mark it web-sourced.
-    # Enumerate over the raw list so `i` stays aligned with Exa's products[i] paths
-    # even when a malformed product is skipped.
-    results: List[Dict] = []
-    for i, product in enumerate(products):
-        if not product.get("norm_name"):
-            continue
-        product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
-        product["verified"] = False
-        product["grounding"] = _grounding_for(grounding, i)
-        results.append(product)
-    return results
+    if not product or not product.get("norm_name"):
+        return []
+    # Give the web product a stable id (like DB products) so response_node can
+    # select it by id. The `halal_` prefix marks it as web-sourced.
+    product["canonical_id"] = f"halal_{uuid.uuid4().hex[:8]}"
+    product["verified"] = False
+    product["grounding"] = grounding
+    return [product]
 
 
 # results = WebSearch.invoke({"query": "saffron road thai basil noodles with beef of american halal co inc. sold in the USA"})
 # print("Web search results", results)
-
-results = KeywordFilterSearch.invoke({"keyword_args": {"norm_name": "E120"}})
-print(results)

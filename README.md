@@ -95,6 +95,12 @@ cp .env.example .env.local   # backend URL + Supabase keys
 npm run dev
 ```
 
+Or bring up backend, frontend, and Typesense together:
+
+```bash
+docker compose up
+```
+
 ### Backend `.env`
 
 Copy `backend/.env.example` to `backend/.env` and fill in:
@@ -108,9 +114,9 @@ Copy `backend/.env.example` to `backend/.env` and fill in:
 | `VALKEY_URL` | Yes | Session/history caching, rate limiting, pub/sub fan-out across backend instances. Defaults to `redis://localhost:6379/0` if unset. |
 | `FRONTEND_URL` | Yes | Added to the CORS allow-list alongside the local dev ports. |
 | `EXA_API_KEY` | Recommended | Powers `WebSearch`, the agent's last-resort tool when the certified database has no match. Without it, that tool just fails quietly and the agent answers from the database alone. |
-| `TYPESENSE_HOST` / `TYPESENSE_PORT` / `TYPESENSE_PROTOCOL` / `TYPESENSE_API_KEY` | No | Not in `.env.example` but read by `config/typesense_client.py`; defaults (`localhost:8108`, http, key `abcd`) match a local Typesense instance (e.g. run via Docker Desktop), so local dev works without setting these. Point them at Typesense Cloud for anything beyond local. |
+| `TYPESENSE_HOST` / `TYPESENSE_PORT` / `TYPESENSE_PROTOCOL` / `TYPESENSE_API_KEY` | No | Not in `.env.example` but read by `config/typesense_client.py`; defaults (`localhost:8108`, http, key `abcd`) match the bundled `docker-compose.yml` Typesense service, so local dev works without setting these. Point them at Typesense Cloud for anything beyond local. |
 | `RL_MAX_CONNECTIONS`, `RL_MSG_RATE_PER_SEC`, `RL_LLM_RATE_PER_MIN`, `RL_CONN_TTL`, `RL_CONN_HEARTBEAT` | No | Tune the fleet-wide connection cap and per-user rate limits; sensible defaults are baked in. |
-| `SUMMARY_TOKEN_THRESHOLD`, `SUMMARY_KEEP_PC` | No | Tune when a chat gets prompted to compact, and what share of that token budget stays verbatim as recent whole turns. |
+| `SUMMARY_TOKEN_THRESHOLD`, `SUMMARY_KEEP_TURNS` | No | Tune when a chat gets prompted to compact and how many recent turns stay verbatim. |
 | `SHUTDOWN_DRAIN_TIMEOUT` | No | How long a graceful shutdown waits for in-flight agent answers to finish and persist. |
 | `APP_ENV` | No | `development` or `production`; picked up by `log/logger.py` to switch between colored and JSON log output. |
 
