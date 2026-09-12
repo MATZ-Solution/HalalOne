@@ -1,4 +1,5 @@
 from log.logger import log
+
 from ..utils.utils import CANONICAL_LISTS, KEYWORD, SEMANTIC, WEB
 
 CLASSIFICATION_PROMPT = """

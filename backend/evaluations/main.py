@@ -18,20 +18,21 @@ from evaluations.datasets.trajectory_dataset import dataset_name as trajectory_d
 from evaluations.datasets.classification_dataset import dataset_name as classification_dataset_name
 from evaluations.datasets.retrieval_relevance_dataset import dataset_name as retrieval_relevance_dataset_name
 from evaluations.datasets.judge_node_dataset import dataset_name as judge_node_dataset_name, variant_dataset_name
-from evaluations.datasets.search_node_args_dataset import dataset_name as search_node_args_dataset_name
-from evaluations.datasets.keyword_search_dataset import dataset_name as keyword_search_dataset_name
-from evaluations.datasets.semantic_search_dataset import dataset_name as semantic_search_dataset_name
+from evaluations.datasets.task_completion_dataset import dataset_name as task_completion_dataset_name
+from evaluations.datasets.knowledge_retention_dataset import dataset_name as knowledge_retention_dataset_name
 # Evaluators
 from evaluations.target_functions.search_trajectory import run_search_node
 from evaluations.target_functions.intent_classifier import run_intent_classifier
 from evaluations.target_functions.retrieval_relevance import run_retrieval_relevance
 from evaluations.target_functions.judge_node import run_judge_node
-from evaluations.target_functions.search_node_args import run_search_node_args
-from evaluations.evaluators.search_node_args_evaluator import search_node_args_correctness
+from evaluations.target_functions.task_completion import run_task_completion
+from evaluations.target_functions.knowledge_retention import run_knowledge_retention
 from evaluations.evaluators.classification_correctness import correct_classification
 from evaluations.evaluators.trajectory_correctness import agent_trajectory_correctness
 from evaluations.evaluators.retrieval_relevance import retrieval_relevance
 from evaluations.evaluators.judge_node_evaluator import judge_node_evaluator
+from evaluations.evaluators.task_completion_evaluator import task_completion_evaluator
+from evaluations.evaluators.knowledge_retention_evaluator import knowledge_retention_evaluator
 
 
 # Evaluates Node 1 — intent classification: does the agent route each prompt to the correct branch (search_node vs response_node)?
@@ -55,48 +56,6 @@ async def run_trajectory_evaluation():
         evaluators=[agent_trajectory_correctness],
         experiment_prefix="experiment-halal-one-agent-trajectory-evaluation 1.0",
     )
-
-
-# Evaluates the search node's tool ARGUMENTS — for one user query, does the node pick the
-# right tool and fill KeywordFilterSearch / SemanticFilterSearch correctly? Runs the node in
-# isolation (no Typesense, no embeddings, no loop), so a failure can only be an argument fault.
-async def run_search_node_args_evaluation():
-    client = get_langsmith_client()
-    return await client.aevaluate(
-        run_search_node_args,
-        data=search_node_args_dataset_name,
-        evaluators=[search_node_args_correctness],
-        experiment_prefix="experiment-halal-one-search-node-args 2.0",
-        max_concurrency=4,
-    )
-
-
-# Evaluates KeywordFilterSearch argument extraction in depth — name/brand splitting, filter
-# normalization, verbatim identifiers, over- and under-extraction. Includes negative-routing rows
-# (queries that must NOT go to keyword) so the score can't be gamed by always picking one tool.
-# async def run_keyword_search_evaluation():
-#     client = get_langsmith_client()
-#     return await client.aevaluate(
-#         run_search_node_args,
-#         data=keyword_search_dataset_name,
-#         evaluators=[search_node_args_correctness],
-#         experiment_prefix="experiment-halal-one-keyword-search 1.0",
-#         max_concurrency=4,
-#     )
-
-
-# # Evaluates SemanticFilterSearch argument extraction — intent capture, lifting stated filters out
-# # of the vector text, stripping conversational noise, and not inventing constraints. Also carries
-# # negative-routing rows (named product/brand/identifier) that must go to keyword instead.
-# async def run_semantic_search_evaluation():
-#     client = get_langsmith_client()
-#     return await client.aevaluate(
-#         run_search_node_args,
-#         data=semantic_search_dataset_name,
-#         evaluators=[search_node_args_correctness],
-#         experiment_prefix="experiment-halal-one-semantic-search 1.0",
-#         max_concurrency=4,
-#     )
 
 
 # Evaluates retrieval relevance — on conceptual queries (semantic-first search),
@@ -125,11 +84,37 @@ async def run_judge_node_evaluation():
     )
 
 
-# Uncomment exactly one.
+# Evaluates task completion — replays each multi-turn conversation through the real
+# agent and grades the resulting transcript as a whole: did the agent fully resolve
+# every request the human made, or did any request get missed, half-answered, or
+# require the human to re-ask/correct/follow up?
+async def run_task_completion_evaluation():
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_task_completion,
+        data=task_completion_dataset_name,
+        evaluators=[task_completion_evaluator],
+        experiment_prefix="experiment-halal-one-task-completion 1.0",
+    )
+
+
+# Evaluates knowledge retention — replays each multi-turn conversation through the
+# real agent and grades the resulting transcript: did the agent stay consistent
+# with facts, names, or details the human established earlier, or did it
+# contradict, forget, or ignore them in a later turn?
+async def run_knowledge_retention_evaluation():
+    client = get_langsmith_client()
+    return await client.aevaluate(
+        run_knowledge_retention,
+        data=knowledge_retention_dataset_name,
+        evaluators=[knowledge_retention_evaluator],
+        experiment_prefix="experiment-halal-one-knowledge-retention 1.0",
+    )
+
+
 # asyncio.run(run_classification_evaluation())
 # asyncio.run(run_trajectory_evaluation())
 # asyncio.run(run_retrieval_relevance_evaluation())
 # asyncio.run(run_judge_node_evaluation())
-asyncio.run(run_search_node_args_evaluation())
-# asyncio.run(run_semantic_search_evaluation())
-# asyncio.run(run_keyword_search_evaluation())
+# asyncio.run(run_task_completion_evaluation())
+asyncio.run(run_knowledge_retention_evaluation())
