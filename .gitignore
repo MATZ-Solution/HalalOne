@@ -1,7 +1,7 @@
 typesense-data/
 .claude/
 /graphify-out 
-/canonical_products.
+/canonical_products
 
 backend/agents/venv/
 .vscode/
